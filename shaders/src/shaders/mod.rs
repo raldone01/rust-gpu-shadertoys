@@ -11,6 +11,7 @@ mod flappy_bird;
 mod galaxy_of_universes;
 mod geodesic_tiling;
 mod heart;
+mod loading_repeating_circles;
 mod luminescence;
 mod mandelbrot_smooth;
 mod miracle_snowflakes;
@@ -57,6 +58,9 @@ macro_rules! render_shader_macro {
     };
 }
 
+render_shader_macro!(loading_repeating_circles,);
+
+/*
 render_shader_macro!(
   miracle_snowflakes,
   morphing,
@@ -87,3 +91,4 @@ render_shader_macro!(
   tokyo,
   on_off_spikes,
 );
+ */
