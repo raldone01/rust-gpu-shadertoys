@@ -10,6 +10,9 @@ default = ["use-compiled-tools"]
 use-installed-tools = ["spirv-builder/use-installed-tools"]
 use-compiled-tools = ["spirv-builder/use-compiled-tools"]
 
+#[patch.crates-io]
+#winit = { git = "https://github.com/rust-windowing/winit.git", rev = "4f3364350995cae26971fd1cc976ef74ee8607db" }
+
 [dependencies]
 shadertoys-shaders = { path = "shaders", features = ["cpu"] }
 futures = { version = "0.3", default-features = false, features = [
@@ -17,11 +20,17 @@ futures = { version = "0.3", default-features = false, features = [
     "executor",
 ] }
 wgpu.workspace = true
-winit = { git = "https://github.com/rust-windowing/winit.git", rev = "cdbdd974fbf79b82b3fb1a4bc84ed717312a3bd2" }
+winit = { git = "https://github.com/rust-windowing/winit.git", rev = "4f3364350995cae26971fd1cc976ef74ee8607db" }
 bytemuck.workspace = true
-iced.workspace = true
-env_logger = "0.11.6"
+iced_widget.workspace = true
+iced_core.workspace = true
+iced_runtime.workspace = true
+iced_wgpu.workspace = true
+iced_winit.workspace = true
+tracing-subscriber = { version = "0.3.19", features = ["std", "env-filter"] }
+tracing = { version = "0.1.41", features = ["std"] }
 ouroboros = "0.18.5"
+window_clipboard = "0.4.1"
 
 [build-dependencies]
 spirv-builder.workspace = true
@@ -35,14 +44,19 @@ spirv-std = { git = "https://github.com/Rust-GPU/rust-gpu", rev = "0b37696e9f5ed
 bytemuck = { git = "https://github.com/Lokathor/bytemuck", rev = "0e11472150c3b63cbae3b445230fe074405bd2d2", features = [
     "derive",
 ] }
-wgpu = { version = "25.0.2", features = ["spirv", "vulkan-portability"] }
+wgpu = { version = "0.19.4", features = ["spirv", "vulkan-portability"] }
 # https://github.com/iced-rs/iced/blob/master/Cargo.toml
-iced = { version = "0.13.1", default-features = false, features = [
+iced_widget = { version = "0.13.4", default-features = false, features = [
     "wgpu",
-    "canvas",
+] }
+iced_runtime = { version = "0.13.2", default-features = false, features = [
     "debug",
+] }
+iced_core = { version = "0.13.1", default-features = false, features = [
     "auto-detect-theme",
 ] }
+iced_wgpu = { version = "0.13.0", default-features = false }
+iced_winit = { version = "0.13.0", default-features = false, features = [] }
 
 # Compile build-dependencies in release mode with
 # the same settings as regular dependencies.

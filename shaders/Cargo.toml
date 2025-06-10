@@ -8,13 +8,12 @@ edition = "2021"
 crate-type = ["dylib"]
 
 [features]
-cpu = ["dep:wgpu", "dep:iced"]
+cpu = ["dep:wgpu"] # add iced_needed here later
 
 [dependencies]
 spirv-std.workspace = true
 bytemuck.workspace = true
 wgpu = { workspace = true, optional = true }
-iced = { workspace = true, optional = true }
 
 [lints]
 workspace = true

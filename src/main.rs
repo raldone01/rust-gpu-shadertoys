@@ -1,29 +1,37 @@
 use futures::executor::block_on;
+use iced_core::{Element, Font, Pixels, Widget};
+use iced_wgpu::graphics::{futures::Subscription, Viewport};
+use iced_widget::{runtime::Task, Text};
 use ouroboros::self_referencing;
 use shadertoys_shaders::{
   shaders::SHADER_DEFINITIONS,
   shared_data::{self, ShaderConstants},
 };
-use std::{error::Error, time::Instant};
+use std::{cell::Cell, error::Error, fmt::Display, marker::PhantomData, rc::Rc, time::Instant};
+use tracing::{error, warn};
 use wgpu::{self, include_spirv, include_spirv_raw, InstanceDescriptor};
 use winit::{
   application::ApplicationHandler,
   dpi::LogicalSize,
   event::{ElementState, KeyEvent, MouseButton, WindowEvent},
   event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
-  keyboard::{KeyCode, NamedKey, PhysicalKey},
+  keyboard::{KeyCode, ModifiersState, NamedKey, PhysicalKey},
   window::{Window, WindowAttributes, WindowId},
 };
 
+// https://book.iced.rs/index.html
+// https://github.com/iced-rs/iced/blob/latest/examples/integration/src/main.rs
+// https://github.com/iced-rs/iced/blob/master/winit/src/lib.rs#L133
+
 #[self_referencing]
 struct WindowSurface {
-  window: Box<dyn Window>,
+  window: Rc<dyn Window>,
   #[borrows(window)]
   #[covariant]
   surface: wgpu::Surface<'this>,
 }
 
-struct ShaderToyApp {
+struct LegacyShaderToyApp {
   device: Option<wgpu::Device>,
   queue: Option<wgpu::Queue>,
   window_surface: Option<WindowSurface>,
@@ -47,163 +55,7 @@ struct ShaderToyApp {
   mouse_left_pressed: bool,
   mouse_left_clicked: bool,
 }
-
-impl Default for ShaderToyApp {
-  fn default() -> Self {
-    Self {
-      device: None,
-      queue: None,
-      window_surface: None,
-      config: None,
-      render_pipeline: None,
-      shader_module: None,
-      close_requested: false,
-      start: Instant::now(),
-      grid_mode: false,
-      shader_to_show: 0,
-      cursor_x: 0.0,
-      cursor_y: 0.0,
-      drag_start_x: 0.0,
-      drag_start_y: 0.0,
-      drag_end_x: 0.0,
-      drag_end_y: 0.0,
-      mouse_left_pressed: false,
-      mouse_left_clicked: false,
-    }
-  }
-}
-
-impl ShaderToyApp {
-  async fn init(&mut self, event_loop: &dyn ActiveEventLoop) -> Result<(), Box<dyn Error>> {
-    let window_attributes = WindowAttributes::default()
-      .with_title("Rust GPU - wgpu")
-      .with_surface_size(LogicalSize::new(1280.0, 720.0));
-    let window_box = event_loop.create_window(window_attributes)?;
-    let mut instance_flags = wgpu::InstanceFlags::default();
-    // Turn off validation as the shaders are trusted.
-    instance_flags.remove(wgpu::InstanceFlags::VALIDATION);
-    // Disable debugging info to speed things up.
-    instance_flags.remove(wgpu::InstanceFlags::DEBUG);
-    let instance = wgpu::Instance::new(&InstanceDescriptor {
-      flags: instance_flags,
-      ..Default::default()
-    });
-
-    let window_surface = WindowSurfaceBuilder {
-      window: window_box,
-      surface_builder: |window| {
-        instance
-          .create_surface(window)
-          .expect("Failed to create surface")
-      },
-    }
-    .build();
-
-    let window_size = window_surface.borrow_window().surface_size();
-    let surface = window_surface.borrow_surface();
-
-    let adapter = instance
-      .request_adapter(&wgpu::RequestAdapterOptions {
-        power_preference: wgpu::PowerPreference::HighPerformance,
-        compatible_surface: Some(surface),
-        force_fallback_adapter: false,
-      })
-      .await?;
-    let mut required_features = wgpu::Features::PUSH_CONSTANTS;
-    if adapter
-      .features()
-      .contains(wgpu::Features::SPIRV_SHADER_PASSTHROUGH)
-    {
-      required_features |= wgpu::Features::SPIRV_SHADER_PASSTHROUGH;
-    }
-    let required_limits = wgpu::Limits {
-      max_push_constant_size: 256,
-      ..Default::default()
-    };
-    let (device, queue) = adapter
-      .request_device(&wgpu::DeviceDescriptor {
-        label: None,
-        required_features,
-        required_limits,
-        ..Default::default()
-      })
-      .await?;
-    let shader_module = if device
-      .features()
-      .contains(wgpu::Features::SPIRV_SHADER_PASSTHROUGH)
-    {
-      let x = include_spirv_raw!(env!("shadertoys_shaders.spv"));
-      unsafe { device.create_shader_module_passthrough(x) }
-    } else {
-      device.create_shader_module(include_spirv!(env!("shadertoys_shaders.spv")))
-    };
-    let swapchain_format = surface.get_capabilities(&adapter).formats[0];
-    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-      label: None,
-      bind_group_layouts: &[],
-      push_constant_ranges: &[wgpu::PushConstantRange {
-        stages: wgpu::ShaderStages::VERTEX_FRAGMENT,
-        range: 0..std::mem::size_of::<ShaderConstants>() as u32,
-      }],
-    });
-    let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-      label: None,
-      layout: Some(&pipeline_layout),
-      vertex: wgpu::VertexState {
-        module: &shader_module,
-        entry_point: Some("main_vs"),
-        buffers: &[],
-        compilation_options: Default::default(),
-      },
-      fragment: Some(wgpu::FragmentState {
-        module: &shader_module,
-        entry_point: Some("main_fs"),
-        targets: &[Some(wgpu::ColorTargetState {
-          format: swapchain_format,
-          blend: Some(wgpu::BlendState::REPLACE),
-          write_mask: wgpu::ColorWrites::ALL,
-        })],
-        compilation_options: Default::default(),
-      }),
-      primitive: wgpu::PrimitiveState {
-        topology: wgpu::PrimitiveTopology::TriangleList,
-        ..Default::default()
-      },
-      depth_stencil: None,
-      multisample: wgpu::MultisampleState::default(),
-      multiview: None,
-      cache: None,
-    });
-    let config = wgpu::SurfaceConfiguration {
-      usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-      format: swapchain_format,
-      width: window_size.width,
-      height: window_size.height,
-      present_mode: wgpu::PresentMode::Fifo,
-      alpha_mode: wgpu::CompositeAlphaMode::Auto,
-      view_formats: vec![],
-      desired_maximum_frame_latency: Default::default(),
-    };
-    surface.configure(&device, &config);
-
-    self.device = Some(device);
-    self.queue = Some(queue);
-    self.window_surface = Some(window_surface);
-    self.config = Some(config);
-    self.render_pipeline = Some(render_pipeline);
-    self.shader_module = Some(shader_module);
-    self.start = Instant::now();
-    Ok(())
-  }
-
-  fn display_mode(&self) -> shared_data::DisplayMode {
-    if self.grid_mode {
-      shared_data::DisplayMode::Grid { _padding: 0 }
-    } else {
-      shared_data::DisplayMode::SingleShader(self.shader_to_show)
-    }
-  }
-
+impl LegacyShaderToyApp {
   fn render(&mut self) {
     let window_surface = match &self.window_surface {
       Some(ws) => ws,
@@ -218,7 +70,7 @@ impl ShaderToyApp {
     let frame = match surface.get_current_texture() {
       Ok(frame) => frame,
       Err(e) => {
-        eprintln!("Failed to acquire texture: {:?}", e);
+        error!("Failed to acquire texture: {:?}", e);
         return;
       },
     };
@@ -254,7 +106,7 @@ impl ShaderToyApp {
         width: current_size.width,
         height: current_size.height,
         time: self.start.elapsed().as_secs_f32(),
-        shader_display_mode: self.display_mode(),
+        shader_display_mode: todo!(), // self.display_mode(),
         cursor_x: self.cursor_x,
         cursor_y: self.cursor_y,
         drag_start_x: self.drag_start_x,
@@ -278,13 +130,8 @@ impl ShaderToyApp {
   }
 }
 
-impl ApplicationHandler for ShaderToyApp {
-  fn can_create_surfaces(&mut self, event_loop: &dyn ActiveEventLoop) {
-    if let Err(e) = block_on(self.init(event_loop)) {
-      eprintln!("Initialization error: {e}");
-      event_loop.exit();
-    }
-  }
+impl ApplicationHandler for LegacyShaderToyApp {
+  fn can_create_surfaces(&mut self, event_loop: &dyn ActiveEventLoop) {}
 
   fn window_event(
     &mut self,
@@ -395,9 +242,418 @@ impl ApplicationHandler for ShaderToyApp {
   }
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
-  env_logger::init();
+#[derive(Debug, Clone)]
+enum Message {}
+
+#[derive(Debug, Clone)]
+struct DynamicError(String);
+
+impl Error for DynamicError {
+  fn source(&self) -> Option<&(dyn Error + 'static)> {
+    None
+  }
+
+  fn description(&self) -> &str {
+    "description() is deprecated; use Display"
+  }
+
+  fn cause(&self) -> Option<&dyn Error> {
+    self.source()
+  }
+}
+
+impl Display for DynamicError {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "DynamicError: {}", self.0)
+  }
+}
+
+struct IcedStuff {
+  engine: iced_wgpu::Engine,
+  renderer: iced_wgpu::Renderer,
+  viewport: Viewport,
+  debug: iced_widget::runtime::Debug,
+}
+
+impl IcedStuff {
+  #[must_use]
+  fn new(
+    adapter: &wgpu::Adapter,
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    swapchain_format: wgpu::TextureFormat,
+    window: &Rc<dyn Window>,
+  ) -> Self {
+    // the Engine holds all the wgpu pipelines it needs
+    let debug = iced_widget::runtime::Debug::new(); // controlled via the iced_runtime/debug feature
+    let engine = iced_wgpu::Engine::new(&adapter, &device, &queue, swapchain_format, None);
+    let renderer = iced_wgpu::Renderer::new(&device, &engine, Font::default(), Pixels::from(16));
+    let safe_area = window.safe_area(); // TODO: use these paddings with iced to avoid rendering obstructed stuff by the os
+    let physical_size = window.surface_size();
+    let viewport = Viewport::with_physical_size(
+      iced_core::Size::new(physical_size.width, physical_size.height),
+      window.scale_factor(),
+    );
+
+    Self {
+      engine,
+      renderer,
+      viewport,
+      debug,
+    }
+  }
+}
+
+struct WGPURenderingStuff {
+  device: wgpu::Device,
+  surface_configuration: wgpu::SurfaceConfiguration,
+  window_surface: WindowSurface,
+  queue: wgpu::Queue,
+  shader_module: wgpu::ShaderModule,
+  iced_stuff: IcedStuff,
+}
+
+impl WGPURenderingStuff {
+  #[must_use]
+  async fn new(window_box: Rc<dyn Window + 'static>) -> Result<Self, Box<dyn Error>> {
+    // --- WGPU Instance Flags ---
+    let mut wgpu_instance_flags = wgpu::InstanceFlags::default();
+    // Turn off validation as the shaders are trusted.
+    wgpu_instance_flags.remove(wgpu::InstanceFlags::VALIDATION);
+    // Disable debugging info to speed things up.
+    wgpu_instance_flags.remove(wgpu::InstanceFlags::DEBUG);
+    let instance = wgpu::Instance::new(InstanceDescriptor {
+      flags: wgpu_instance_flags,
+      ..Default::default()
+    });
+
+    // --- Create Window Surface ---
+    let window_surface = WindowSurfaceTryBuilder {
+      window: window_box,
+      surface_builder: |window| instance.create_surface(window.as_ref()),
+    }
+    .try_build()?;
+    let window = window_surface.borrow_window();
+    let surface = window_surface.borrow_surface();
+
+    // --- Request Adapter for our window ---
+    let adapter = instance
+      .request_adapter(&wgpu::RequestAdapterOptions {
+        power_preference: wgpu::PowerPreference::HighPerformance,
+        compatible_surface: Some(surface),
+        force_fallback_adapter: false,
+      })
+      .await
+      .ok_or_else(|| DynamicError(format!("Failed to request adapter!")))?;
+
+    // --- Enable Optional Wanted Features ---
+    let mut required_features = wgpu::Features::PUSH_CONSTANTS;
+    if adapter
+      .features()
+      .contains(wgpu::Features::SPIRV_SHADER_PASSTHROUGH)
+    {
+      required_features |= wgpu::Features::SPIRV_SHADER_PASSTHROUGH;
+    }
+
+    // --- Required Limits ---
+    let required_limits = wgpu::Limits {
+      max_push_constant_size: 256,
+      ..Default::default()
+    };
+
+    // --- Request Device ---
+    let (device, queue) = adapter
+      .request_device(
+        &wgpu::DeviceDescriptor {
+          label: None,
+          required_features,
+          required_limits,
+          ..Default::default()
+        },
+        None,
+      )
+      .await?;
+
+    // --- Create Shader Module ---
+    let shader_module = if device
+      .features()
+      .contains(wgpu::Features::SPIRV_SHADER_PASSTHROUGH)
+    {
+      let x = include_spirv_raw!(env!("shadertoys_shaders.spv"));
+      unsafe { device.create_shader_module_spirv(&x) }
+      // Newer egpu version
+      //unsafe { device.create_shader_module_passthrough(x) }
+    } else {
+      device.create_shader_module(include_spirv!(env!("shadertoys_shaders.spv")))
+    };
+
+    // --- Setup the surface configuration ---
+    let surface_capabilities = surface.get_capabilities(&adapter);
+    let swapchain_format = surface_capabilities
+      .formats
+      .iter()
+      .copied()
+      .find(wgpu::TextureFormat::is_srgb)
+      .or_else(|| surface_capabilities.formats.first().copied())
+      .expect("Get preferred format");
+
+    let surface_size = window.surface_size();
+    let surface_configuration = wgpu::SurfaceConfiguration {
+      usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+      format: swapchain_format,
+      width: surface_size.width,
+      height: surface_size.height,
+      present_mode: wgpu::PresentMode::AutoVsync,
+      alpha_mode: wgpu::CompositeAlphaMode::Auto,
+      view_formats: vec![],
+      desired_maximum_frame_latency: 2,
+    };
+
+    let iced_stuff = IcedStuff::new(&adapter, &device, &queue, swapchain_format, &window);
+
+    Ok(Self {
+      device,
+      surface_configuration,
+      window_surface,
+      queue,
+      shader_module,
+      iced_stuff,
+    })
+  }
+}
+
+struct ShaderToyApp {
+  app_start: Instant,
+  close_requested: bool,
+
+  // gui rendering stuff
+  window: Option<Rc<dyn Window>>,
+  window_renderer_stuff: Option<WGPURenderingStuff>,
+  cursor_position: Option<winit::dpi::PhysicalPosition<f64>>,
+  //clipboard: Clipboard, // TODO: wrap it and implement iced_core::Clipboard trait
+  modifiers: ModifiersState,
+  resized: Option<winit::dpi::PhysicalSize<u32>>,
+
+  // UI state
+  grid_mode: bool,
+  shader_to_show: u32,
+}
+
+impl ShaderToyApp {
+  #[must_use]
+  fn new() -> Self {
+    Self {
+      app_start: Instant::now(),
+      close_requested: false,
+
+      window: None,
+      window_renderer_stuff: None,
+      cursor_position: None,
+      modifiers: ModifiersState::default(),
+      resized: None,
+
+      grid_mode: false,
+      shader_to_show: 0,
+    }
+  }
+
+  #[must_use]
+  fn display_mode(&self) -> shared_data::DisplayMode {
+    if self.grid_mode {
+      shared_data::DisplayMode::Grid { _padding: 0 }
+    } else {
+      shared_data::DisplayMode::SingleShader(self.shader_to_show)
+    }
+  }
+
+  fn update(&mut self, message: Message) -> Task<Message> {
+    Task::none()
+  }
+
+  fn subscription(&self) -> Subscription<Message> {
+    Subscription::none()
+  }
+
+  fn view(&self) -> Element<Message, iced_core::Theme, iced_wgpu::Renderer> {
+    Text::new("ShaderToy - Rust GPU").into()
+  }
+
+  fn get_main_window(&mut self, event_loop: &dyn ActiveEventLoop) -> Rc<dyn Window> {
+    if let Some(main_window) = &self.window {
+      main_window.clone()
+    } else {
+      let main_window_attributes = WindowAttributes::default()
+        .with_title("Shadertoy - Rust GPU")
+        .with_surface_size(LogicalSize::new(1280.0, 720.0))
+        // we only set it visible once we can render to it to avoid showing garbage data
+        .with_visible(false);
+      let main_window: Rc<dyn Window> = Rc::from(
+        event_loop
+          .create_window(main_window_attributes)
+          .expect("Failed to create main window"),
+      );
+      self.window = Some(main_window.clone());
+      main_window
+    }
+  }
+
+  fn resize_main_window(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
+    if let Some(renderer_stuff) = &mut self.window_renderer_stuff {
+      renderer_stuff.surface_configuration.width = new_size.width;
+      renderer_stuff.surface_configuration.height = new_size.height;
+      let surface = renderer_stuff.window_surface.borrow_surface();
+      surface.configure(
+        &renderer_stuff.device,
+        &renderer_stuff.surface_configuration,
+      );
+      let window = renderer_stuff.window_surface.borrow_window();
+      renderer_stuff.iced_stuff.viewport = Viewport::with_physical_size(
+        iced_core::Size::new(new_size.width, new_size.height),
+        window.scale_factor(), //TODO: handle scale factor changes
+      );
+    }
+  }
+}
+
+impl Default for ShaderToyApp {
+  fn default() -> Self {
+    Self::new()
+  }
+}
+
+impl ApplicationHandler for ShaderToyApp {
+  fn resumed(&mut self, event_loop: &dyn ActiveEventLoop) {
+    // --- Create the main window ---
+    self.get_main_window(event_loop);
+  }
+
+  fn can_create_surfaces(&mut self, event_loop: &dyn ActiveEventLoop) {
+    if self.window_renderer_stuff.is_none() {
+      let main_window = self.get_main_window(event_loop);
+      let rendering_stuff_future = WGPURenderingStuff::new(main_window);
+      // TODO: maybe move to background thread
+      match block_on(rendering_stuff_future) {
+        Ok(rendering_stuff) => {
+          self.window_renderer_stuff = Some(rendering_stuff);
+          if let Some(main_window) = &self.window {
+            main_window.set_visible(true);
+          }
+        },
+        Err(e) => {
+          error!("Failed to initialize rendering stuff: {}", e);
+          event_loop.exit();
+        },
+      }
+    }
+  }
+
+  fn destroy_surfaces(&mut self, event_loop: &dyn ActiveEventLoop) {
+    self.window_renderer_stuff = None;
+  }
+
+  fn window_event(
+    &mut self,
+    event_loop: &dyn ActiveEventLoop,
+    window_id: WindowId,
+    event: WindowEvent,
+  ) {
+    match event {
+      WindowEvent::RedrawRequested => {
+        if let Some(renderer_stuff) = &mut self.window_renderer_stuff {
+          let WGPURenderingStuff {
+            device,
+            queue,
+            iced_stuff,
+            surface_configuration,
+            window_surface,
+            ..
+          } = renderer_stuff;
+
+          let window = window_surface.borrow_window();
+          let surface = window_surface.borrow_surface();
+
+          let IcedStuff {
+            engine,
+            renderer,
+            viewport,
+            debug,
+          } = iced_stuff;
+
+          match surface.get_current_texture() {
+            Ok(frame) => {
+              let mut encoder =
+                device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+
+              let view = frame
+                .texture
+                .create_view(&wgpu::TextureViewDescriptor::default());
+
+              // And then iced on top
+              renderer.present(
+                engine,
+                device,
+                queue,
+                &mut encoder,
+                Some(iced_core::Color::WHITE),
+                frame.texture.format(),
+                &view,
+                viewport,
+                &debug.overlay(),
+              );
+
+              // Then we submit the work
+              engine.submit(queue, encoder);
+              frame.present();
+
+              // Update the mouse cursor
+              let state = iced_runtime::program::State::new(
+                Self::default(),
+                viewport.logical_size(),
+                renderer,
+                debug,
+              );
+              /*window.set_cursor(iced_winit::conversion::mouse_interaction(
+                state.mouse_interaction(),
+              ));*/
+            },
+            Err(error) => match error {
+              wgpu::SurfaceError::OutOfMemory => {
+                panic!("Swapchain error: {error}. Rendering cannot continue.")
+              },
+              _ => {
+                // Try rendering again next frame.
+                window.request_redraw();
+              },
+            },
+          }
+        }
+      },
+      _ => {
+        warn!("Unhandled window event: {:?}", event);
+      },
+    }
+  }
+}
+
+impl iced_runtime::Program for ShaderToyApp {
+  type Renderer = iced_wgpu::Renderer;
+  type Theme = iced_core::Theme;
+  type Message = Message;
+
+  fn update(&mut self, message: Self::Message) -> Task<Self::Message> {
+    todo!()
+  }
+
+  fn view(&self) -> Element<'_, Self::Message, Self::Theme, Self::Renderer> {
+    todo!()
+  }
+}
+
+fn main() -> Result<(), winit::error::EventLoopError> {
+  tracing_subscriber::fmt::init();
+
+  // initialize the winit event loop
   let event_loop = EventLoop::new()?;
   let mut app = ShaderToyApp::default();
-  event_loop.run_app(&mut app).map_err(Into::into)
+  event_loop.run_app(&mut app)
 }
