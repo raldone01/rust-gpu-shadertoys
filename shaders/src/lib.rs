@@ -1,4 +1,5 @@
 #![cfg_attr(target_arch = "spirv", no_std)]
+#![allow(unused)] // temp while working
 
 pub mod shader_prelude;
 use shader_prelude::*;
@@ -128,7 +129,6 @@ pub fn fs(constants: &ShaderConstants, mut frag_coord: Vec2) -> Vec4 {
   Vec3::powf(color.truncate(), 2.2).extend(color.w)
 }
 
-#[allow(unused_attributes)]
 #[spirv(fragment)]
 pub fn main_fs(
   #[spirv(frag_coord)] in_frag_coord: Vec4,
@@ -140,7 +140,6 @@ pub fn main_fs(
   *output = color;
 }
 
-#[allow(unused_attributes)]
 #[spirv(vertex)]
 pub fn main_vs(#[spirv(vertex_index)] vert_idx: i32, #[spirv(position)] builtin_pos: &mut Vec4) {
   // Create a "full screen triangle" by mapping the vertex index.
