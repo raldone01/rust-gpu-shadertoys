@@ -27,7 +27,6 @@ iced_winit.workspace = true
 tracing-subscriber = { version = "0.3.19", features = ["std", "env-filter"] }
 tracing = { version = "0.1.41", features = ["std"] }
 ouroboros = "0.18.5"
-window_clipboard = "0.4.1"
 
 [build-dependencies]
 spirv-builder.workspace = true

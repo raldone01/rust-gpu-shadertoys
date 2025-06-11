@@ -2,12 +2,13 @@ use futures::executor::block_on;
 use iced_core::{Element, Font, Pixels, Widget};
 use iced_wgpu::graphics::{futures::Subscription, Viewport};
 use iced_widget::{runtime::Task, Text};
+use iced_winit::conversion;
 use ouroboros::self_referencing;
 use shadertoys_shaders::{
   shaders::SHADER_DEFINITIONS,
   shared_data::{self, ShaderConstants},
 };
-use std::{cell::Cell, error::Error, fmt::Display, marker::PhantomData, rc::Rc, time::Instant};
+use std::{cell::Cell, error::Error, fmt::Display, marker::PhantomData, sync::Arc, time::Instant};
 use tracing::{error, warn};
 use wgpu::{self, include_spirv, include_spirv_raw, InstanceDescriptor};
 use winit::{
@@ -26,7 +27,7 @@ use winit::{
 
 #[self_referencing]
 struct WindowSurface {
-  window: Rc<Window>,
+  window: Arc<Window>,
   #[borrows(window)]
   #[covariant]
   surface: wgpu::Surface<'this>,
@@ -282,7 +283,7 @@ impl IcedStuff {
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     swapchain_format: wgpu::TextureFormat,
-    window: &Rc<Window>,
+    window: &Arc<Window>,
   ) -> Self {
     // the Engine holds all the wgpu pipelines it needs
     let debug = iced_widget::runtime::Debug::new(); // controlled via the iced_runtime/debug feature
@@ -314,7 +315,7 @@ struct WGPURenderingStuff {
 
 impl WGPURenderingStuff {
   #[must_use]
-  async fn new(window_box: Rc<Window>) -> Result<Self, Box<dyn Error>> {
+  async fn new(window_box: Arc<Window>) -> Result<Self, Box<dyn Error>> {
     // --- WGPU Instance Flags ---
     let mut wgpu_instance_flags = wgpu::InstanceFlags::default();
     // Turn off validation as the shaders are trusted.
@@ -428,63 +429,32 @@ impl WGPURenderingStuff {
   }
 }
 
-struct ShaderToyApp {
-  app_start: Instant,
-  close_requested: bool,
-
+struct WinitRunner {
   // gui rendering stuff
-  window: Option<Rc<Window>>,
+  window: Option<Arc<Window>>,
+  /// TODO move this into a struct together with window to avoid separate options
+  window_clipboard: Option<iced_winit::Clipboard>,
   window_renderer_stuff: Option<WGPURenderingStuff>,
   cursor_position: Option<winit::dpi::PhysicalPosition<f64>>,
   //clipboard: Clipboard, // TODO: wrap it and implement iced_core::Clipboard trait
   modifiers: ModifiersState,
-  resized: Option<winit::dpi::PhysicalSize<u32>>,
-
-  // UI state
-  grid_mode: bool,
-  shader_to_show: u32,
+  iced_state: Option<iced_runtime::program::State<ShaderToyApp>>,
 }
 
-impl ShaderToyApp {
+impl WinitRunner {
   #[must_use]
   fn new() -> Self {
     Self {
-      app_start: Instant::now(),
-      close_requested: false,
-
       window: None,
+      window_clipboard: None,
       window_renderer_stuff: None,
       cursor_position: None,
       modifiers: ModifiersState::default(),
-      resized: None,
-
-      grid_mode: false,
-      shader_to_show: 0,
+      iced_state: None,
     }
   }
 
-  #[must_use]
-  fn display_mode(&self) -> shared_data::DisplayMode {
-    if self.grid_mode {
-      shared_data::DisplayMode::Grid { _padding: 0 }
-    } else {
-      shared_data::DisplayMode::SingleShader(self.shader_to_show)
-    }
-  }
-
-  fn update(&mut self, message: Message) -> Task<Message> {
-    Task::none()
-  }
-
-  fn subscription(&self) -> Subscription<Message> {
-    Subscription::none()
-  }
-
-  fn view(&self) -> Element<Message, iced_core::Theme, iced_wgpu::Renderer> {
-    Text::new("ShaderToy - Rust GPU").into()
-  }
-
-  fn get_main_window(&mut self, event_loop: &ActiveEventLoop) -> Rc<Window> {
+  fn get_main_window(&mut self, event_loop: &ActiveEventLoop) -> Arc<Window> {
     if let Some(main_window) = &self.window {
       main_window.clone()
     } else {
@@ -493,12 +463,13 @@ impl ShaderToyApp {
         .with_base_size(LogicalSize::new(1280.0, 720.0))
         // we only set it visible once we can render to it to avoid showing garbage data
         .with_visible(false);
-      let main_window = Rc::from(
+      let main_window = Arc::from(
         event_loop
           .create_window(main_window_attributes)
           .expect("Failed to create main window"),
       );
       self.window = Some(main_window.clone());
+      self.window_clipboard = Some(iced_winit::Clipboard::connect(main_window.clone()));
       main_window
     }
   }
@@ -521,14 +492,16 @@ impl ShaderToyApp {
   }
 }
 
-impl Default for ShaderToyApp {
+impl Default for WinitRunner {
   fn default() -> Self {
     Self::new()
   }
 }
 
-impl ApplicationHandler for ShaderToyApp {
+impl ApplicationHandler for WinitRunner {
   fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+    event_loop.set_control_flow(ControlFlow::Wait);
+
     // --- Create the main window ---
     let main_window = self.get_main_window(event_loop);
 
@@ -536,7 +509,15 @@ impl ApplicationHandler for ShaderToyApp {
       let rendering_stuff_future = WGPURenderingStuff::new(main_window);
       // TODO: maybe move to background thread
       match block_on(rendering_stuff_future) {
-        Ok(rendering_stuff) => {
+        Ok(mut rendering_stuff) => {
+          // Initialize the iced runtime state
+          self.iced_state = Some(iced_runtime::program::State::new(
+            ShaderToyApp::new(),
+            rendering_stuff.iced_stuff.viewport.logical_size(),
+            &mut rendering_stuff.iced_stuff.renderer,
+            &mut rendering_stuff.iced_stuff.debug,
+          ));
+
           self.window_renderer_stuff = Some(rendering_stuff);
           if let Some(main_window) = &self.window {
             main_window.set_visible(true);
@@ -567,7 +548,6 @@ impl ApplicationHandler for ShaderToyApp {
             device,
             queue,
             iced_stuff,
-            surface_configuration,
             window_surface,
             ..
           } = renderer_stuff;
@@ -584,13 +564,6 @@ impl ApplicationHandler for ShaderToyApp {
 
           match surface.get_current_texture() {
             Ok(frame) => {
-              let state = iced_runtime::program::State::new(
-                Self::default(),
-                viewport.logical_size(),
-                renderer,
-                debug,
-              );
-
               let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("Iced Commands"),
               });
@@ -616,9 +589,12 @@ impl ApplicationHandler for ShaderToyApp {
               engine.submit(queue, encoder);
               frame.present();
 
-              /*window.set_cursor(iced_winit::conversion::mouse_interaction(
-                state.mouse_interaction(),
-              ));*/
+              // Update the mouse cursor
+              if let Some(state) = &mut self.iced_state {
+                window.set_cursor(iced_winit::conversion::mouse_interaction(
+                  state.mouse_interaction(),
+                ));
+              }
             },
             Err(error) => match error {
               wgpu::SurfaceError::OutOfMemory => {
@@ -632,10 +608,102 @@ impl ApplicationHandler for ShaderToyApp {
           }
         }
       },
+      WindowEvent::CursorMoved { position, .. } => {
+        self.cursor_position = Some(position);
+      },
+      WindowEvent::ModifiersChanged(new_modifiers) => {
+        self.modifiers = new_modifiers.state();
+      },
+      WindowEvent::Resized(new_size) => {
+        self.resize_main_window(new_size);
+      },
+      WindowEvent::CloseRequested => {
+        event_loop.exit();
+      },
       _ => {
         warn!("Unhandled window event: {:?}", event);
       },
     }
+
+    if let (Some(iced_state), Some(window)) = (&mut self.iced_state, &self.window) {
+      // Map window event to iced event
+      if let Some(event) =
+        iced_winit::conversion::window_event(event, window.scale_factor(), self.modifiers)
+      {
+        iced_state.queue_event(event);
+      }
+
+      if let (Some(rendering_stuff), Some(clipboard)) =
+        (&mut self.window_renderer_stuff, &mut self.window_clipboard)
+      {
+        let WGPURenderingStuff {
+          iced_stuff:
+            IcedStuff {
+              renderer,
+              viewport,
+              debug,
+              ..
+            },
+          ..
+        } = rendering_stuff;
+
+        // If there are events pending
+        if !iced_state.is_queue_empty() {
+          // We update iced
+          let _ = iced_state.update(
+            viewport.logical_size(),
+            self
+              .cursor_position
+              .map(|p| conversion::cursor_position(p, viewport.scale_factor()))
+              .map(iced_core::mouse::Cursor::Available)
+              .unwrap_or(iced_core::mouse::Cursor::Unavailable),
+            renderer,
+            &iced_core::Theme::default(),
+            &iced_core::renderer::Style {
+              text_color: iced_core::Color::WHITE,
+            },
+            clipboard,
+            debug,
+          );
+
+          // and request a redraw
+          window.request_redraw();
+        }
+      }
+    }
+  }
+}
+
+struct ShaderToyApp {
+  app_start: Instant,
+  // UI state
+  grid_mode: bool,
+  shader_to_show: u32,
+}
+
+impl ShaderToyApp {
+  #[must_use]
+  fn new() -> Self {
+    Self {
+      app_start: Instant::now(),
+      grid_mode: false,
+      shader_to_show: 0,
+    }
+  }
+
+  #[must_use]
+  fn display_mode(&self) -> shared_data::DisplayMode {
+    if self.grid_mode {
+      shared_data::DisplayMode::Grid { _padding: 0 }
+    } else {
+      shared_data::DisplayMode::SingleShader(self.shader_to_show)
+    }
+  }
+}
+
+impl Default for ShaderToyApp {
+  fn default() -> Self {
+    Self::new()
   }
 }
 
@@ -658,6 +726,6 @@ fn main() -> Result<(), winit::error::EventLoopError> {
 
   // initialize the winit event loop
   let event_loop = EventLoop::new()?;
-  let mut app = ShaderToyApp::default();
+  let mut app = WinitRunner::default();
   event_loop.run_app(&mut app)
 }
