@@ -321,7 +321,11 @@ impl WGPURenderingStuff {
     wgpu_instance_flags.remove(wgpu::InstanceFlags::VALIDATION);
     // Disable debugging info to speed things up.
     wgpu_instance_flags.remove(wgpu::InstanceFlags::DEBUG);
+
+    let backend = wgpu::util::backend_bits_from_env().unwrap_or(wgpu::Backends::all());
+
     let instance = wgpu::Instance::new(InstanceDescriptor {
+      backends: backend,
       flags: wgpu_instance_flags,
       ..Default::default()
     });
@@ -580,8 +584,16 @@ impl ApplicationHandler for ShaderToyApp {
 
           match surface.get_current_texture() {
             Ok(frame) => {
-              let mut encoder =
-                device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+              let state = iced_runtime::program::State::new(
+                Self::default(),
+                viewport.logical_size(),
+                renderer,
+                debug,
+              );
+
+              let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Iced Commands"),
+              });
 
               let view = frame
                 .texture
@@ -604,13 +616,6 @@ impl ApplicationHandler for ShaderToyApp {
               engine.submit(queue, encoder);
               frame.present();
 
-              // Update the mouse cursor
-              let state = iced_runtime::program::State::new(
-                Self::default(),
-                viewport.logical_size(),
-                renderer,
-                debug,
-              );
               /*window.set_cursor(iced_winit::conversion::mouse_interaction(
                 state.mouse_interaction(),
               ));*/
