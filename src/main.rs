@@ -16,6 +16,7 @@ use winit::{
   event::{ElementState, KeyEvent, MouseButton, WindowEvent},
   event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
   keyboard::{KeyCode, ModifiersState, NamedKey, PhysicalKey},
+  platform::x11::WindowAttributesExtX11,
   window::{Window, WindowAttributes, WindowId},
 };
 
@@ -25,7 +26,7 @@ use winit::{
 
 #[self_referencing]
 struct WindowSurface {
-  window: Rc<dyn Window>,
+  window: Rc<Window>,
   #[borrows(window)]
   #[covariant]
   surface: wgpu::Surface<'this>,
@@ -63,7 +64,7 @@ impl LegacyShaderToyApp {
     };
 
     let window = window_surface.borrow_window();
-    let current_size = window.surface_size();
+    let current_size = window.inner_size();
     let surface = window_surface.borrow_surface();
     let device = self.device.as_ref().unwrap();
     let queue = self.queue.as_ref().unwrap();
@@ -131,17 +132,16 @@ impl LegacyShaderToyApp {
 }
 
 impl ApplicationHandler for LegacyShaderToyApp {
-  fn can_create_surfaces(&mut self, event_loop: &dyn ActiveEventLoop) {}
-
+  fn resumed(&mut self, event_loop: &ActiveEventLoop) {}
   fn window_event(
     &mut self,
-    event_loop: &dyn ActiveEventLoop,
+    event_loop: &ActiveEventLoop,
     _window_id: WindowId,
     event: WindowEvent,
   ) {
     match event {
       WindowEvent::CloseRequested => self.close_requested = true,
-      WindowEvent::SurfaceResized(new_size) => {
+      WindowEvent::Resized(new_size) => {
         if let Some(config) = self.config.as_mut() {
           config.width = new_size.width;
           config.height = new_size.height;
@@ -153,7 +153,7 @@ impl ApplicationHandler for LegacyShaderToyApp {
           }
         }
       },
-      WindowEvent::PointerMoved { position, .. } => {
+      WindowEvent::CursorMoved { position, .. } => {
         self.cursor_x = position.x as f32;
         self.cursor_y = position.y as f32;
         if self.mouse_left_pressed {
@@ -161,8 +161,8 @@ impl ApplicationHandler for LegacyShaderToyApp {
           self.drag_end_y = self.cursor_y;
         }
       },
-      WindowEvent::PointerButton { state, button, .. } => {
-        if button.mouse_button() == MouseButton::Left {
+      WindowEvent::MouseInput { state, button, .. } => {
+        if button == MouseButton::Left {
           self.mouse_left_pressed = state == ElementState::Pressed;
           if self.mouse_left_pressed {
             self.drag_start_x = self.cursor_x;
@@ -232,7 +232,7 @@ impl ApplicationHandler for LegacyShaderToyApp {
     event_loop.set_control_flow(ControlFlow::Poll);
   }
 
-  fn about_to_wait(&mut self, event_loop: &dyn ActiveEventLoop) {
+  fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
     if self.close_requested {
       event_loop.exit();
     } else if let Some(ws) = &self.window_surface {
@@ -282,14 +282,13 @@ impl IcedStuff {
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     swapchain_format: wgpu::TextureFormat,
-    window: &Rc<dyn Window>,
+    window: &Rc<Window>,
   ) -> Self {
     // the Engine holds all the wgpu pipelines it needs
     let debug = iced_widget::runtime::Debug::new(); // controlled via the iced_runtime/debug feature
     let engine = iced_wgpu::Engine::new(&adapter, &device, &queue, swapchain_format, None);
     let renderer = iced_wgpu::Renderer::new(&device, &engine, Font::default(), Pixels::from(16));
-    let safe_area = window.safe_area(); // TODO: use these paddings with iced to avoid rendering obstructed stuff by the os
-    let physical_size = window.surface_size();
+    let physical_size = window.inner_size();
     let viewport = Viewport::with_physical_size(
       iced_core::Size::new(physical_size.width, physical_size.height),
       window.scale_factor(),
@@ -315,7 +314,7 @@ struct WGPURenderingStuff {
 
 impl WGPURenderingStuff {
   #[must_use]
-  async fn new(window_box: Rc<dyn Window + 'static>) -> Result<Self, Box<dyn Error>> {
+  async fn new(window_box: Rc<Window>) -> Result<Self, Box<dyn Error>> {
     // --- WGPU Instance Flags ---
     let mut wgpu_instance_flags = wgpu::InstanceFlags::default();
     // Turn off validation as the shaders are trusted.
@@ -397,7 +396,7 @@ impl WGPURenderingStuff {
       .or_else(|| surface_capabilities.formats.first().copied())
       .expect("Get preferred format");
 
-    let surface_size = window.surface_size();
+    let surface_size = window.inner_size();
     let surface_configuration = wgpu::SurfaceConfiguration {
       usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
       format: swapchain_format,
@@ -408,8 +407,11 @@ impl WGPURenderingStuff {
       view_formats: vec![],
       desired_maximum_frame_latency: 2,
     };
+    window_surface
+      .borrow_surface()
+      .configure(&device, &surface_configuration);
 
-    let iced_stuff = IcedStuff::new(&adapter, &device, &queue, swapchain_format, &window);
+    let iced_stuff = IcedStuff::new(&adapter, &device, &queue, swapchain_format, window);
 
     Ok(Self {
       device,
@@ -427,7 +429,7 @@ struct ShaderToyApp {
   close_requested: bool,
 
   // gui rendering stuff
-  window: Option<Rc<dyn Window>>,
+  window: Option<Rc<Window>>,
   window_renderer_stuff: Option<WGPURenderingStuff>,
   cursor_position: Option<winit::dpi::PhysicalPosition<f64>>,
   //clipboard: Clipboard, // TODO: wrap it and implement iced_core::Clipboard trait
@@ -478,16 +480,16 @@ impl ShaderToyApp {
     Text::new("ShaderToy - Rust GPU").into()
   }
 
-  fn get_main_window(&mut self, event_loop: &dyn ActiveEventLoop) -> Rc<dyn Window> {
+  fn get_main_window(&mut self, event_loop: &ActiveEventLoop) -> Rc<Window> {
     if let Some(main_window) = &self.window {
       main_window.clone()
     } else {
       let main_window_attributes = WindowAttributes::default()
         .with_title("Shadertoy - Rust GPU")
-        .with_surface_size(LogicalSize::new(1280.0, 720.0))
+        .with_base_size(LogicalSize::new(1280.0, 720.0))
         // we only set it visible once we can render to it to avoid showing garbage data
         .with_visible(false);
-      let main_window: Rc<dyn Window> = Rc::from(
+      let main_window = Rc::from(
         event_loop
           .create_window(main_window_attributes)
           .expect("Failed to create main window"),
@@ -497,10 +499,10 @@ impl ShaderToyApp {
     }
   }
 
-  fn resize_main_window(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
+  fn resize_main_window(&mut self, new_inner_size: winit::dpi::PhysicalSize<u32>) {
     if let Some(renderer_stuff) = &mut self.window_renderer_stuff {
-      renderer_stuff.surface_configuration.width = new_size.width;
-      renderer_stuff.surface_configuration.height = new_size.height;
+      renderer_stuff.surface_configuration.width = new_inner_size.width;
+      renderer_stuff.surface_configuration.height = new_inner_size.height;
       let surface = renderer_stuff.window_surface.borrow_surface();
       surface.configure(
         &renderer_stuff.device,
@@ -508,7 +510,7 @@ impl ShaderToyApp {
       );
       let window = renderer_stuff.window_surface.borrow_window();
       renderer_stuff.iced_stuff.viewport = Viewport::with_physical_size(
-        iced_core::Size::new(new_size.width, new_size.height),
+        iced_core::Size::new(new_inner_size.width, new_inner_size.height),
         window.scale_factor(), //TODO: handle scale factor changes
       );
     }
@@ -522,14 +524,11 @@ impl Default for ShaderToyApp {
 }
 
 impl ApplicationHandler for ShaderToyApp {
-  fn resumed(&mut self, event_loop: &dyn ActiveEventLoop) {
+  fn resumed(&mut self, event_loop: &ActiveEventLoop) {
     // --- Create the main window ---
-    self.get_main_window(event_loop);
-  }
+    let main_window = self.get_main_window(event_loop);
 
-  fn can_create_surfaces(&mut self, event_loop: &dyn ActiveEventLoop) {
     if self.window_renderer_stuff.is_none() {
-      let main_window = self.get_main_window(event_loop);
       let rendering_stuff_future = WGPURenderingStuff::new(main_window);
       // TODO: maybe move to background thread
       match block_on(rendering_stuff_future) {
@@ -547,13 +546,13 @@ impl ApplicationHandler for ShaderToyApp {
     }
   }
 
-  fn destroy_surfaces(&mut self, event_loop: &dyn ActiveEventLoop) {
+  fn suspended(&mut self, event_loop: &ActiveEventLoop) {
     self.window_renderer_stuff = None;
   }
 
   fn window_event(
     &mut self,
-    event_loop: &dyn ActiveEventLoop,
+    event_loop: &ActiveEventLoop,
     window_id: WindowId,
     event: WindowEvent,
   ) {
@@ -641,11 +640,11 @@ impl iced_runtime::Program for ShaderToyApp {
   type Message = Message;
 
   fn update(&mut self, message: Self::Message) -> Task<Self::Message> {
-    todo!()
+    Task::none()
   }
 
   fn view(&self) -> Element<'_, Self::Message, Self::Theme, Self::Renderer> {
-    todo!()
+    Text::new("ShaderToy - Rust GPU").size(32).into()
   }
 }
 

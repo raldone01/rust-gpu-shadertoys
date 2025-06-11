@@ -10,9 +10,6 @@ default = ["use-compiled-tools"]
 use-installed-tools = ["spirv-builder/use-installed-tools"]
 use-compiled-tools = ["spirv-builder/use-compiled-tools"]
 
-#[patch.crates-io]
-#winit = { git = "https://github.com/rust-windowing/winit.git", rev = "4f3364350995cae26971fd1cc976ef74ee8607db" }
-
 [dependencies]
 shadertoys-shaders = { path = "shaders", features = ["cpu"] }
 futures = { version = "0.3", default-features = false, features = [
@@ -20,7 +17,7 @@ futures = { version = "0.3", default-features = false, features = [
     "executor",
 ] }
 wgpu.workspace = true
-winit = { git = "https://github.com/rust-windowing/winit.git", rev = "4f3364350995cae26971fd1cc976ef74ee8607db" }
+winit = "0.30.11"
 bytemuck.workspace = true
 iced_widget.workspace = true
 iced_core.workspace = true
