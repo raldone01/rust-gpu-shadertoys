@@ -1,15 +1,20 @@
+use clap::{command, Arg};
 use futures::executor::block_on;
 use iced_core::{Element, Font, Pixels, Widget};
 use iced_wgpu::graphics::{futures::Subscription, Viewport};
-use iced_widget::{runtime::Task, Text};
+use iced_widget::{container, runtime::Task, Text};
 use iced_winit::conversion;
 use ouroboros::self_referencing;
 use shadertoys_shaders::{
   shaders::SHADER_DEFINITIONS,
   shared_data::{self, ShaderConstants},
 };
-use std::{cell::Cell, error::Error, fmt::Display, marker::PhantomData, sync::Arc, time::Instant};
-use tracing::{error, warn};
+use std::{
+  cell::Cell, error::Error, fmt::Display, io, marker::PhantomData, str::FromStr, sync::Arc,
+  time::Instant,
+};
+use tracing::{error, info, level_filters::LevelFilter, warn};
+use tracing_subscriber::EnvFilter;
 use wgpu::{self, include_spirv, include_spirv_raw, InstanceDescriptor};
 use winit::{
   application::ApplicationHandler,
@@ -717,12 +722,40 @@ impl iced_runtime::Program for ShaderToyApp {
   }
 
   fn view(&self) -> Element<'_, Self::Message, Self::Theme, Self::Renderer> {
-    Text::new("ShaderToy - Rust GPU").size(32).into()
+    info!("Rendering ShaderToy UI");
+    container(Text::new("ShaderToy - Rust GPU")).into()
   }
 }
 
+fn new_argparser() -> clap::Command {
+  command!().about("ShaderToy - Rust GPU").arg(
+    Arg::new("log-level")
+      .long("log-level")
+      .help("Log level")
+      .value_parser(["TRACE", "DEBUG", "INFO", "WARNING", "ERROR"]),
+  )
+}
+
 fn main() -> Result<(), winit::error::EventLoopError> {
-  tracing_subscriber::fmt::init();
+  let matches = new_argparser().get_matches();
+
+  let log_level = matches
+    .get_one::<String>("log-level")
+    .and_then(|level| tracing::Level::from_str(level).ok());
+  let logging_builder = tracing_subscriber::fmt::fmt().with_writer(io::stdout);
+  if let Some(level) = log_level {
+    logging_builder.with_max_level(level).init();
+  } else {
+    logging_builder
+      .with_env_filter(
+        EnvFilter::builder()
+          .with_default_directive(LevelFilter::INFO.into())
+          .from_env_lossy(),
+      )
+      .init();
+  }
+
+  info!("Starting ShaderToy - Rust GPU");
 
   // initialize the winit event loop
   let event_loop = EventLoop::new()?;

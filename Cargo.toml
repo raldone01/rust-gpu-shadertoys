@@ -11,6 +11,7 @@ use-installed-tools = ["spirv-builder/use-installed-tools"]
 use-compiled-tools = ["spirv-builder/use-compiled-tools"]
 
 [dependencies]
+clap = { version = "4.5", features = ["cargo"] }
 shadertoys-shaders = { path = "shaders", features = ["cpu"] }
 futures = { version = "0.3", default-features = false, features = [
     "std",
