@@ -13,23 +13,21 @@
 
 use crate::shader_prelude::*;
 
-const SHADER_DEFINITION: ShaderDefinition = ShaderDefinition {
+define_shader!({
   name: "A Lot of Spheres",
-};
+});
 
-impl Shader for ShaderALotOfSpheres {
-  const SHADER_DEFINITION: &'static ShaderDefinition = &SHADER_DEFINITION;
-
-  fn shader_fn(shader_input: &ShaderInput, shader_output: &mut ShaderResult) {
-    let frag_color = &mut shader_output.color;
-    let &ShaderInput {
-      resolution,
-      time,
-      frag_coord,
-      ..
-    } = shader_input;
-    Self { resolution, time }.main_image(frag_color, frag_coord);
+fn main_image(
+  shader_input: &LegacyShadertoyGlobals,
+  shader_context: &ShaderContext<'_>,
+  frag_color: &mut Vec4,
+  frag_coord: Vec2,
+) {
+  ShaderALotOfSpheres {
+    resolution: shader_input.resolution,
+    time: shader_input.time,
   }
+  .main_image(frag_color, frag_coord);
 }
 
 pub struct ShaderALotOfSpheres {

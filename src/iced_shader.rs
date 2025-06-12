@@ -3,21 +3,31 @@ use std::{sync::Arc, time::Instant};
 use iced_core::{layout, mouse, renderer, Rectangle, Size, Widget};
 use iced_wgpu::{graphics::Viewport, primitive::Renderer};
 use iced_widget::shader;
-use shadertoys_shaders::shared_data::{self, ShaderConstants};
+use shadertoys_shaders::{
+  shared_data::{self, ShaderConstants},
+  ShaderDefinition,
+};
 
 #[derive(Clone)]
-pub struct ShaderToyShader {
+pub struct ShaderToyShaderProgram {
   shader_module: Arc<wgpu::ShaderModule>,
+  shader_definition: &'static dyn ShaderDefinition,
 }
 
-impl ShaderToyShader {
+impl ShaderToyShaderProgram {
   #[must_use]
-  pub fn new(shader_module: Arc<wgpu::ShaderModule>) -> Self {
-    Self { shader_module }
+  pub fn new(
+    shader_module: Arc<wgpu::ShaderModule>,
+    shader_definition: &'static dyn ShaderDefinition,
+  ) -> Self {
+    Self {
+      shader_module,
+      shader_definition,
+    }
   }
 }
 
-impl<Message> shader::Program<Message> for ShaderToyShader {
+impl<Message> shader::Program<Message> for ShaderToyShaderProgram {
   type State = ();
   type Primitive = Primitive;
 
@@ -27,18 +37,25 @@ impl<Message> shader::Program<Message> for ShaderToyShader {
     _cursor: mouse::Cursor,
     _bounds: Rectangle,
   ) -> Self::Primitive {
-    Primitive::new(self.shader_module.clone())
+    Primitive::new(self.shader_module.clone(), self.shader_definition)
   }
 }
 
 #[derive(Debug)]
 pub struct Primitive {
   shader_module: Arc<wgpu::ShaderModule>,
+  shader_definition: &'static dyn ShaderDefinition,
 }
 
 impl Primitive {
-  pub fn new(shader_module: Arc<wgpu::ShaderModule>) -> Self {
-    Self { shader_module }
+  pub fn new(
+    shader_module: Arc<wgpu::ShaderModule>,
+    shader_definition: &'static dyn ShaderDefinition,
+  ) -> Self {
+    Self {
+      shader_module,
+      shader_definition,
+    }
   }
 }
 
@@ -57,7 +74,7 @@ impl shader::Primitive for Primitive {
         device,
         queue,
         format,
-        "myshader_name",
+        self.shader_definition,
         self.shader_module.clone(),
       ));
     }
@@ -92,9 +109,11 @@ impl Pipeline {
     device: &wgpu::Device,
     _queue: &wgpu::Queue,
     swapchain_format: wgpu::TextureFormat,
-    shader_name: &str,
+    shader_definition: &'static dyn ShaderDefinition,
     shader_module: Arc<wgpu::ShaderModule>,
   ) -> Self {
+    let shader_name = shader_definition.name();
+
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
       label: Some(shader_name),
       bind_group_layouts: &[],
@@ -114,7 +133,7 @@ impl Pipeline {
       },
       fragment: Some(wgpu::FragmentState {
         module: &shader_module,
-        entry_point: "main_fs",
+        entry_point: shader_name,
         targets: &[Some(wgpu::ColorTargetState {
           format: swapchain_format,
           blend: Some(wgpu::BlendState::REPLACE),

@@ -1,6 +1,6 @@
 use clap::{command, Arg};
 use futures::executor::block_on;
-use iced_core::{Element, Font, Length, Pixels, Widget};
+use iced_core::{Element, Font, Length, Pixels, Size, Widget};
 use iced_wgpu::graphics::{futures::Subscription, Viewport};
 use iced_widget::{column, container, runtime::Task, shader, Column, Text};
 use iced_winit::conversion;
@@ -8,9 +8,11 @@ use ouroboros::self_referencing;
 use shadertoys_shaders::{
   shaders::SHADER_DEFINITIONS,
   shared_data::{self, ShaderConstants},
+  ShaderDefinition,
 };
 use std::{
   cell::{Cell, RefCell},
+  collections::HashMap,
   error::Error,
   fmt::{Debug, Display},
   io,
@@ -33,8 +35,9 @@ use winit::{
   window::{Window, WindowAttributes, WindowId},
 };
 
-use crate::iced_shader::ShaderToyShader;
+use crate::iced_shader::ShaderToyShaderProgram;
 
+mod iced_grid;
 mod iced_shader;
 
 // https://book.iced.rs/index.html
@@ -76,7 +79,7 @@ struct LegacyShaderToyApp {
 impl LegacyShaderToyApp {
   fn render(&mut self) {}
 }
-
+/*
 impl ApplicationHandler for LegacyShaderToyApp {
   fn resumed(&mut self, event_loop: &ActiveEventLoop) {}
   fn window_event(
@@ -178,15 +181,9 @@ impl ApplicationHandler for LegacyShaderToyApp {
     event_loop.set_control_flow(ControlFlow::Poll);
   }
 
-  fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-    if self.close_requested {
-      event_loop.exit();
-    } else if let Some(ws) = &self.window_surface {
-      ws.borrow_window().request_redraw();
-    }
-    event_loop.set_control_flow(ControlFlow::Poll);
-  }
+  fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {}
 }
+   */
 
 #[derive(Debug, Clone)]
 struct DynamicError(String);
@@ -623,9 +620,9 @@ struct ShaderToyApp {
   app_start: Instant,
   // UI state
   grid_mode: bool,
-  shader_to_show: u32,
+  shader_to_show: usize,
   shader_module: Option<Arc<ShaderModule>>,
-  shader_program: Option<ShaderToyShader>,
+  shader_programs: HashMap<*const dyn ShaderDefinition, ShaderToyShaderProgram>,
 }
 
 impl ShaderToyApp {
@@ -636,7 +633,7 @@ impl ShaderToyApp {
       grid_mode: false,
       shader_to_show: 0,
       shader_module: None,
-      shader_program: None,
+      shader_programs: Default::default(),
     }
   }
 
@@ -645,7 +642,52 @@ impl ShaderToyApp {
     if self.grid_mode {
       shared_data::DisplayMode::Grid { _padding: 0 }
     } else {
-      shared_data::DisplayMode::SingleShader(self.shader_to_show)
+      shared_data::DisplayMode::SingleShader(self.shader_to_show as u32)
+    }
+  }
+
+  #[must_use]
+  fn shader_widget(
+    shader_program: Option<&ShaderToyShaderProgram>,
+  ) -> Element<'_, Message, iced_core::Theme, iced_wgpu::Renderer> {
+    match shader_program {
+      Some(shader_program) => shader(shader_program)
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .into(),
+      None => {
+        // placeholder for when shader is not yet loaded
+        let shader_text = "Loading shader...";
+        Text::new(shader_text)
+          .width(Length::Fill)
+          .height(Length::Fill)
+          .center()
+          .into()
+      },
+    }
+  }
+
+  #[must_use]
+  fn shader_index_to_definition(index: usize) -> &'static dyn ShaderDefinition {
+    *SHADER_DEFINITIONS
+      .get(index)
+      .expect("Shader index out of bounds")
+  }
+
+  #[must_use]
+  fn shader_name_to_index(name: &'static str) -> usize {
+    SHADER_DEFINITIONS
+      .iter()
+      .position(|def| def.name() == name)
+      .expect("Unknown shader name")
+  }
+
+  fn initialize_shader_programs(&mut self, shader_module: &Arc<ShaderModule>) {
+    // Initialize shader programs for all shaders
+    self.shader_programs.clear();
+    for &shader_def in SHADER_DEFINITIONS.iter() {
+      let shader_program = ShaderToyShaderProgram::new(shader_module.clone(), shader_def);
+      self.shader_programs.insert(shader_def, shader_program);
     }
   }
 }
@@ -665,30 +707,32 @@ impl iced_runtime::Program for ShaderToyApp {
     match message {
       Message::NewShaderModule(shader_module) => {
         info!("Received new shader module");
+        // TODO: need a better way to propagate shader_module changes without recreating all shaders
+        self.initialize_shader_programs(&shader_module);
         self.shader_module = Some(shader_module);
-        // TODO: need a better way to propagate shader_module changes
-        self.shader_program = Some(ShaderToyShader::new(self.shader_module.clone().unwrap()));
         Task::none()
       },
     }
   }
 
   fn view(&self) -> Element<'_, Self::Message, Self::Theme, Self::Renderer> {
-    let shader_widget: Element<'_, Self::Message, Self::Theme, Self::Renderer> =
-      if let Some(shader_program) = &self.shader_program {
-        shader(shader_program)
-          .width(Length::Fill)
-          .height(Length::Fill)
-          .into()
-      } else {
-        // placeholder for when shader is not yet loaded
-        let shader_text = "Loading shader...";
-        Text::new(shader_text)
-          .width(Length::Fill)
-          .height(Length::Fill)
-          .center()
-          .into()
-      };
+    let shader_widget = if !self.grid_mode {
+      let shader_definition = Self::shader_index_to_definition(self.shader_to_show);
+      info!("Showing shader: {}", shader_definition.name());
+      let shader_program = self
+        .shader_programs
+        .get(&(shader_definition as *const dyn ShaderDefinition));
+      Self::shader_widget(shader_program)
+    } else {
+      // Grid mode
+      let cell_count = SHADER_DEFINITIONS.len();
+      let aspect = Size::new(16.0, 9.0); // TODO: use window aspect ratio?
+                                         //let grid_size = optimal_grid(cell_count, aspect);
+      let all_shader_modules = SHADER_DEFINITIONS.iter();
+      // TODO: use once we can move on to 14-dev let grid = iced_widget::grid(all_shader_modules);
+      // for now we must use a column
+      todo!()
+    };
 
     column![Text::new("ShaderToy - Rust GPU"), shader_widget].into()
   }

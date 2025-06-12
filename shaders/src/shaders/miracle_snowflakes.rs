@@ -12,18 +12,17 @@
 
 use crate::shader_prelude::*;
 
-const SHADER_DEFINITION: ShaderDefinition = ShaderDefinition {
-  name: "Playing Marble",
-};
+define_shader!({
+  name: "Miracle Snowflakes",
+});
 
-impl Shader for ShaderMiracleSnowflakes<'_> {
-  const SHADER_DEFINITION: &'static ShaderDefinition = &SHADER_DEFINITION;
-
-  fn shader_fn(shader_input: &ShaderInput, shader_output: &mut ShaderResult) {
-    let frag_color = &mut shader_output.color;
-    let &ShaderInput { frag_coord, .. } = shader_input;
-    ShaderMiracleSnowflakes::new(&shader_input).main_image(frag_color, frag_coord);
-  }
+fn main_image(
+  shader_input: &LegacyShadertoyGlobals,
+  shader_context: &ShaderContext<'_>,
+  frag_color: &mut Vec4,
+  frag_coord: Vec2,
+) {
+  ShaderMiracleSnowflakes::new(shader_input).main_image(frag_color, frag_coord);
 }
 
 const ITERATIONS: u32 = 15;
@@ -34,7 +33,7 @@ const STEP: f32 = 1.0;
 const FAR: f32 = 10000.0;
 
 pub struct ShaderMiracleSnowflakes<'a> {
-  inputs: &'a ShaderInput,
+  inputs: &'a LegacyShadertoyGlobals,
   radius: f32,
   zoom: f32,
 
@@ -52,7 +51,7 @@ pub struct ShaderMiracleSnowflakes<'a> {
 
 impl<'a> ShaderMiracleSnowflakes<'a> {
   #[must_use]
-  fn new(inputs: &'a ShaderInput) -> Self {
+  fn new(inputs: &'a LegacyShadertoyGlobals) -> Self {
     Self {
       inputs,
       radius: 0.25, // radius of Snowflakes. maximum for this demo 0.25.
