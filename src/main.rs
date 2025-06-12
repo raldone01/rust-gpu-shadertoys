@@ -10,12 +10,19 @@ use shadertoys_shaders::{
   shared_data::{self, ShaderConstants},
 };
 use std::{
-  cell::Cell, error::Error, fmt::Display, io, marker::PhantomData, str::FromStr, sync::Arc,
+  cell::{Cell, RefCell},
+  error::Error,
+  fmt::{Debug, Display},
+  io,
+  marker::PhantomData,
+  rc::Rc,
+  str::FromStr,
+  sync::Arc,
   time::Instant,
 };
 use tracing::{error, info, level_filters::LevelFilter, warn};
 use tracing_subscriber::EnvFilter;
-use wgpu::{self, include_spirv, include_spirv_raw, InstanceDescriptor};
+use wgpu::{self, include_spirv, include_spirv_raw, InstanceDescriptor, ShaderModule};
 use winit::{
   application::ApplicationHandler,
   dpi::LogicalSize,
@@ -249,9 +256,6 @@ impl ApplicationHandler for LegacyShaderToyApp {
 }
 
 #[derive(Debug, Clone)]
-enum Message {}
-
-#[derive(Debug, Clone)]
 struct DynamicError(String);
 
 impl Error for DynamicError {
@@ -314,7 +318,7 @@ struct WGPURenderingStuff {
   surface_configuration: wgpu::SurfaceConfiguration,
   window_surface: WindowSurface,
   queue: wgpu::Queue,
-  shader_module: wgpu::ShaderModule,
+  shader_module: Arc<wgpu::ShaderModule>,
   iced_stuff: IcedStuff,
 }
 
@@ -428,12 +432,24 @@ impl WGPURenderingStuff {
       surface_configuration,
       window_surface,
       queue,
-      shader_module,
+      shader_module: Arc::new(shader_module),
       iced_stuff,
     })
   }
 }
 
+impl Debug for WGPURenderingStuff {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.debug_struct("WGPURenderingStuff")
+      .field("device", &self.device)
+      .field("surface_configuration", &self.surface_configuration)
+      .field("queue", &self.queue)
+      .field("shader_module", &self.shader_module)
+      .finish()
+  }
+}
+
+#[derive(Default)]
 struct WinitRunner {
   // gui rendering stuff
   window: Option<Arc<Window>>,
@@ -447,18 +463,6 @@ struct WinitRunner {
 }
 
 impl WinitRunner {
-  #[must_use]
-  fn new() -> Self {
-    Self {
-      window: None,
-      window_clipboard: None,
-      window_renderer_stuff: None,
-      cursor_position: None,
-      modifiers: ModifiersState::default(),
-      iced_state: None,
-    }
-  }
-
   fn get_main_window(&mut self, event_loop: &ActiveEventLoop) -> Arc<Window> {
     if let Some(main_window) = &self.window {
       main_window.clone()
@@ -497,12 +501,6 @@ impl WinitRunner {
   }
 }
 
-impl Default for WinitRunner {
-  fn default() -> Self {
-    Self::new()
-  }
-}
-
 impl ApplicationHandler for WinitRunner {
   fn resumed(&mut self, event_loop: &ActiveEventLoop) {
     event_loop.set_control_flow(ControlFlow::Wait);
@@ -515,12 +513,18 @@ impl ApplicationHandler for WinitRunner {
       // TODO: maybe move to background thread
       match block_on(rendering_stuff_future) {
         Ok(mut rendering_stuff) => {
-          // Initialize the iced runtime state
-          self.iced_state = Some(iced_runtime::program::State::new(
-            ShaderToyApp::new(),
-            rendering_stuff.iced_stuff.viewport.logical_size(),
-            &mut rendering_stuff.iced_stuff.renderer,
-            &mut rendering_stuff.iced_stuff.debug,
+          let iced_state = self.iced_state.get_or_insert_with(|| {
+            // Initialize the iced runtime state
+            iced_runtime::program::State::new(
+              ShaderToyApp::new(),
+              rendering_stuff.iced_stuff.viewport.logical_size(),
+              &mut rendering_stuff.iced_stuff.renderer,
+              &mut rendering_stuff.iced_stuff.debug,
+            )
+          });
+          // send the new shader module to the iced state
+          iced_state.queue_message(Message::NewShaderModule(
+            rendering_stuff.shader_module.clone(),
           ));
 
           self.window_renderer_stuff = Some(rendering_stuff);
@@ -595,9 +599,9 @@ impl ApplicationHandler for WinitRunner {
               frame.present();
 
               // Update the mouse cursor
-              if let Some(state) = &mut self.iced_state {
+              if let Some(iced_state) = &mut self.iced_state {
                 window.set_cursor(iced_winit::conversion::mouse_interaction(
-                  state.mouse_interaction(),
+                  iced_state.mouse_interaction(),
                 ));
               }
             },
@@ -664,9 +668,7 @@ impl ApplicationHandler for WinitRunner {
               .unwrap_or(iced_core::mouse::Cursor::Unavailable),
             renderer,
             &iced_core::Theme::default(),
-            &iced_core::renderer::Style {
-              text_color: iced_core::Color::WHITE,
-            },
+            &iced_core::renderer::Style::default(),
             clipboard,
             debug,
           );
@@ -679,11 +681,17 @@ impl ApplicationHandler for WinitRunner {
   }
 }
 
+#[derive(Debug, Clone)]
+enum Message {
+  NewShaderModule(Arc<ShaderModule>),
+}
+
 struct ShaderToyApp {
   app_start: Instant,
   // UI state
   grid_mode: bool,
   shader_to_show: u32,
+  shader_module: Option<Arc<ShaderModule>>,
 }
 
 impl ShaderToyApp {
@@ -693,6 +701,7 @@ impl ShaderToyApp {
       app_start: Instant::now(),
       grid_mode: false,
       shader_to_show: 0,
+      shader_module: None,
     }
   }
 
@@ -718,11 +727,16 @@ impl iced_runtime::Program for ShaderToyApp {
   type Message = Message;
 
   fn update(&mut self, message: Self::Message) -> Task<Self::Message> {
-    Task::none()
+    match message {
+      Message::NewShaderModule(shader_module) => {
+        info!("Received new shader module");
+        self.shader_module = Some(shader_module);
+        Task::none()
+      },
+    }
   }
 
   fn view(&self) -> Element<'_, Self::Message, Self::Theme, Self::Renderer> {
-    info!("Rendering ShaderToy UI");
     container(Text::new("ShaderToy - Rust GPU")).into()
   }
 }
