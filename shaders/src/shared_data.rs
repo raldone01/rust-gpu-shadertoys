@@ -14,9 +14,6 @@ pub struct ShaderConstants {
   pub height: u32,
   pub time: f32,
 
-  // UI state
-  pub shader_display_mode: DisplayMode,
-
   // Mouse state.
   pub cursor_x: f32,
   pub cursor_y: f32,

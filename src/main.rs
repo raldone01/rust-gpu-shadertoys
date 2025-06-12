@@ -1,8 +1,8 @@
 use clap::{command, Arg};
 use futures::executor::block_on;
-use iced_core::{Element, Font, Pixels, Widget};
+use iced_core::{Element, Font, Length, Pixels, Widget};
 use iced_wgpu::graphics::{futures::Subscription, Viewport};
-use iced_widget::{container, runtime::Task, Text};
+use iced_widget::{column, container, runtime::Task, shader, Column, Text};
 use iced_winit::conversion;
 use ouroboros::self_referencing;
 use shadertoys_shaders::{
@@ -32,6 +32,10 @@ use winit::{
   platform::x11::WindowAttributesExtX11,
   window::{Window, WindowAttributes, WindowId},
 };
+
+use crate::iced_shader::ShaderToyShader;
+
+mod iced_shader;
 
 // https://book.iced.rs/index.html
 // https://github.com/iced-rs/iced/blob/latest/examples/integration/src/main.rs
@@ -70,78 +74,7 @@ struct LegacyShaderToyApp {
   mouse_left_clicked: bool,
 }
 impl LegacyShaderToyApp {
-  fn render(&mut self) {
-    let window_surface = match &self.window_surface {
-      Some(ws) => ws,
-      None => return,
-    };
-
-    let window = window_surface.borrow_window();
-    let current_size = window.inner_size();
-    let surface = window_surface.borrow_surface();
-    let device = self.device.as_ref().unwrap();
-    let queue = self.queue.as_ref().unwrap();
-    let frame = match surface.get_current_texture() {
-      Ok(frame) => frame,
-      Err(e) => {
-        error!("Failed to acquire texture: {:?}", e);
-        return;
-      },
-    };
-    let view = frame
-      .texture
-      .create_view(&wgpu::TextureViewDescriptor::default());
-    let mut encoder =
-      device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-    {
-      let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-        label: None,
-        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-          view: &view,
-          resolve_target: None,
-          ops: wgpu::Operations {
-            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-            store: wgpu::StoreOp::Store,
-          },
-        })],
-        depth_stencil_attachment: None,
-        timestamp_writes: None,
-        occlusion_query_set: None,
-      });
-      rpass.set_viewport(
-        0.0,
-        0.0,
-        current_size.width as f32,
-        current_size.height as f32,
-        0.0,
-        1.0,
-      );
-      let push_constants = ShaderConstants {
-        width: current_size.width,
-        height: current_size.height,
-        time: self.start.elapsed().as_secs_f32(),
-        shader_display_mode: todo!(), // self.display_mode(),
-        cursor_x: self.cursor_x,
-        cursor_y: self.cursor_y,
-        drag_start_x: self.drag_start_x,
-        drag_start_y: self.drag_start_y,
-        drag_end_x: self.drag_end_x,
-        drag_end_y: self.drag_end_y,
-        mouse_left_pressed: self.mouse_left_pressed as u32,
-        mouse_left_clicked: self.mouse_left_clicked as u32,
-      };
-      self.mouse_left_clicked = false;
-      rpass.set_pipeline(self.render_pipeline.as_ref().unwrap());
-      rpass.set_push_constants(
-        wgpu::ShaderStages::VERTEX_FRAGMENT,
-        0,
-        bytemuck::bytes_of(&push_constants),
-      );
-      rpass.draw(0..3, 0..1);
-    }
-    queue.submit(Some(encoder.finish()));
-    frame.present();
-  }
+  fn render(&mut self) {}
 }
 
 impl ApplicationHandler for LegacyShaderToyApp {
@@ -692,6 +625,7 @@ struct ShaderToyApp {
   grid_mode: bool,
   shader_to_show: u32,
   shader_module: Option<Arc<ShaderModule>>,
+  shader_program: Option<ShaderToyShader>,
 }
 
 impl ShaderToyApp {
@@ -702,6 +636,7 @@ impl ShaderToyApp {
       grid_mode: false,
       shader_to_show: 0,
       shader_module: None,
+      shader_program: None,
     }
   }
 
@@ -731,13 +666,31 @@ impl iced_runtime::Program for ShaderToyApp {
       Message::NewShaderModule(shader_module) => {
         info!("Received new shader module");
         self.shader_module = Some(shader_module);
+        // TODO: need a better way to propagate shader_module changes
+        self.shader_program = Some(ShaderToyShader::new(self.shader_module.clone().unwrap()));
         Task::none()
       },
     }
   }
 
   fn view(&self) -> Element<'_, Self::Message, Self::Theme, Self::Renderer> {
-    container(Text::new("ShaderToy - Rust GPU")).into()
+    let shader_widget: Element<'_, Self::Message, Self::Theme, Self::Renderer> =
+      if let Some(shader_program) = &self.shader_program {
+        shader(shader_program)
+          .width(Length::Fill)
+          .height(Length::Fill)
+          .into()
+      } else {
+        // placeholder for when shader is not yet loaded
+        let shader_text = "Loading shader...";
+        Text::new(shader_text)
+          .width(Length::Fill)
+          .height(Length::Fill)
+          .center()
+          .into()
+      };
+
+    column![Text::new("ShaderToy - Rust GPU"), shader_widget].into()
   }
 }
 

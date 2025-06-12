@@ -78,7 +78,7 @@ pub fn fs(constants: &ShaderConstants, mut frag_coord: Vec2) -> Vec4 {
   let shader_input: ShaderInput;
   let shader_output = &mut ShaderResult { color: Vec4::ZERO };
 
-  match constants.shader_display_mode {
+  match DisplayMode::SingleShader(0) {
     DisplayMode::Grid { _padding: _ } => {
       // Render all shaders in a grid layout
       // ignore shader_to_show
