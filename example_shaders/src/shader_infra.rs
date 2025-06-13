@@ -105,10 +105,12 @@ macro_rules! define_shader {
       }),* ,)?
     };
 
-    // assert Zeroable for all buffers
-    fn _assert_zeroable_buffers() {
-      $(_assert_zeroable::<$buffer_type>();)*
-    }
+    const _: () = {
+      // assert Zeroable for all buffers
+      fn _assert_zeroable_buffers() {
+        $(_assert_zeroable::<$buffer_type>();)*
+      }
+    };
 
     #[repr(C)]
     #[derive(bytemuck::NoUninit, Copy, Clone)]
