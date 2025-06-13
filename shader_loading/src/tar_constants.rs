@@ -28,6 +28,14 @@ pub mod ustar {
   pub const UNAME_OFFSET: usize = VERSION_OFFSET + VERSION_LEN;
   pub const GNAME_OFFSET: usize = UNAME_OFFSET + UNAME_LEN;
 
+  // Typeflags
+  /// Type flag for a regular file (standard).
+  pub const TYPEFLAG_REGTYPE: u8 = b'0';
+  /// Type flag for a regular file (legacy).
+  pub const TYPEFLAG_AREGTYPE: u8 = b'\0';
+  /// Type flag for a directory.
+  pub const TYPEFLAG_DIRTYPE: u8 = b'5';
+
   // USTAR Magic values
   pub const MAGIC: &[u8; MAGIC_LEN] = b"ustar\0";
   pub const VERSION: &[u8; VERSION_LEN] = b"00";

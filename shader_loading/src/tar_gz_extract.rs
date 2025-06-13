@@ -13,6 +13,8 @@ use crate::{
 pub struct TarHeader {
   pub path: String,
   pub size: u64,
+  /// The type of file entry (e.g., regular file, directory).
+  pub typeflag: u8,
 }
 
 /// Parses a null-terminated string from a byte slice.
@@ -52,8 +54,13 @@ fn parse_header(header_buf: &[u8]) -> Result<TarHeader, ReadError> {
 
   let path = parse_name(&header_buf[NAME_OFFSET..NAME_OFFSET + NAME_LEN])?;
   let size = parse_octal(&header_buf[SIZE_OFFSET..SIZE_OFFSET + SIZE_LEN])?;
+  let typeflag = header_buf[TYPEFLAG_OFFSET];
 
-  Ok(TarHeader { path, size })
+  Ok(TarHeader {
+    path,
+    size,
+    typeflag,
+  })
 }
 
 /// A reader for decompressing and parsing a TAR archive on the fly.
@@ -124,17 +131,25 @@ impl<R: Read> TarReader<R> {
       let header = parse_header(&header_buf)?;
       let file_size = header.size as usize;
 
-      // Security check: ensure we don't exceed the extraction limit.
-      if self.total_extracted.saturating_add(file_size) > self.max_extracted_bytes {
-        return Err(ReadError::BufferTooSmall);
+      // We only care about regular files ('0' or '\0').
+      // Other types like directories ('5'), symlinks, etc., are skipped.
+      if header.typeflag == TYPEFLAG_REGTYPE || header.typeflag == TYPEFLAG_AREGTYPE {
+        // Security check: ensure we don't exceed the extraction limit.
+        if self.total_extracted.saturating_add(file_size) > self.max_extracted_bytes {
+          return Err(ReadError::MemoryLimitExceeded);
+        }
+
+        // Read the file's data content.
+        let file_data = self.reader.read_exact(file_size)?;
+        self.total_extracted += file_size;
+
+        // Store the extracted file.
+        files.insert(header.path, file_data.to_vec());
+      } else if file_size > 0 {
+        // For non-regular files that might have data (e.g. symlinks), skip their data block.
+        // For directories, file_size is 0, so this is a no-op.
+        let _ = self.reader.read_exact(file_size)?;
       }
-
-      // Read the file's data content.
-      let file_data = self.reader.read_exact(file_size)?;
-      self.total_extracted += file_size;
-
-      // Store the extracted file.
-      files.insert(header.path, file_data.to_vec());
 
       // File data in a TAR archive is padded with null bytes to fill a 512-byte block.
       // We must consume these padding bytes to align the stream for the next header.
@@ -149,27 +164,59 @@ impl<R: Read> TarReader<R> {
   }
 }
 
+pub(crate) fn strip_gzip_header(data: &[u8]) -> &[u8] {
+  let mut i = 10; // skip fixed header
+  let flg = data[3];
+
+  if flg & 0x04 != 0 {
+    // FEXTRA
+    let xlen = u16::from_le_bytes([data[i], data[i + 1]]) as usize;
+    i += 2 + xlen;
+  }
+  if flg & 0x08 != 0 {
+    // FNAME
+    while data[i] != 0 {
+      i += 1;
+    }
+    i += 1;
+  }
+  if flg & 0x10 != 0 {
+    // FCOMMENT
+    while data[i] != 0 {
+      i += 1;
+    }
+    i += 1;
+  }
+  if flg & 0x02 != 0 {
+    // FHCRC
+    i += 2;
+  }
+
+  &data[i..data.len() - 8] // exclude footer (CRC + ISIZE)
+}
+
 pub fn extract_tar_file(
-  compressed_data: &[u8],
+  tar_gz_data: &[u8],
   max_extracted_bytes: usize,
 ) -> Result<HashMap<String, Vec<u8>>, ReadError> {
-  // Try compressed Reader first, then BufferReader.
-  let compressed_reader = CompressedReader::new(compressed_data);
+  let stripped_compressed_data = strip_gzip_header(tar_gz_data);
+  // Try compressed raw DEFLATE reading as a fallback.
+  let compressed_reader = CompressedReader::new(stripped_compressed_data, false);
   let mut tar_reader = TarReader::new(compressed_reader, max_extracted_bytes);
-  let compressed_error = match tar_reader.read_all_files() {
+  let uncompressed_raw_error = match tar_reader.read_all_files() {
     Ok(files) => return Ok(files),
     Err(e) => e,
   };
-  // If compressed reading fails, try with a BufferReader.
-  let buffer_reader = BufferReader::new(compressed_data);
+  // If the compressed reading fails, try uncompressed reading.
+  let buffer_reader = BufferReader::new(tar_gz_data);
   let mut tar_reader = TarReader::new(buffer_reader, max_extracted_bytes);
   let uncompressed_error = match tar_reader.read_all_files() {
     Ok(files) => return Ok(files),
     Err(e) => e,
   };
-  // If both methods fail, return a DynamicError combining both errors.
+
   Err(ReadError::Io(Box::new(DynamicError(format!(
-    "Failed to extract TAR file: Compressed error: {:?}, Uncompressed error: {:?}",
-    compressed_error, uncompressed_error
+    "Failed to extract TAR file: Compressed Raw error: {:?}, Uncompressed error: {:?}",
+    uncompressed_raw_error, uncompressed_error
   )))))
 }
