@@ -1,0 +1,16 @@
+[package]
+name = "shared_with_gpu"
+version = "0.0.0"
+authors = []
+edition = "2021"
+
+[features]
+cpu_definition_export = ["dep:serde"]
+
+[dependencies]
+bytemuck = { workspace = true, features = ["derive"] }
+serde = { workspace = true, optional = true, features = ["derive"] }
+
+
+[lints]
+workspace = true

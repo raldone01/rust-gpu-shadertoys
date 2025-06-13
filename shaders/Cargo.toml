@@ -8,12 +8,15 @@ edition = "2021"
 crate-type = ["dylib"]
 
 [features]
-cpu = ["dep:wgpu"] # add iced_needed here later
+# Actual shader code is only emitted if this feature is enabled.
+shader_code = []
+# If this feature is enabled, code is generated to export the shader definitions.
+cpu_definition_export = ["shared_with_gpu/cpu_definition_export"]
 
 [dependencies]
 spirv-std.workspace = true
 bytemuck.workspace = true
-wgpu = { workspace = true, optional = true }
+shared_with_gpu.workspace = true
 
 [lints]
 workspace = true

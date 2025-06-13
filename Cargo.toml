@@ -7,12 +7,12 @@ edition = "2021"
 
 [features]
 default = ["use-compiled-tools"]
-use-installed-tools = ["spirv-builder/use-installed-tools"]
+#use-installed-tools = ["spirv-builder/use-installed-tools"]
 use-compiled-tools = ["spirv-builder/use-compiled-tools"]
 
 [dependencies]
+shared_with_gpu.workspace = true
 clap = { version = "4.5", features = ["cargo"] }
-shadertoys-shaders = { path = "shaders", features = ["cpu"] }
 futures = { version = "0.3", default-features = false, features = [
     "std",
     "executor",
@@ -31,20 +31,24 @@ ouroboros = "0.18.5"
 
 [build-dependencies]
 spirv-builder.workspace = true
+shadertoys-shaders = { workspace = true, features = ["cpu_definition_export"] }
+serde_json = { version = "1.0.140", features = ["std"] }
+#TODO: rm
+flate2.workspace = true
+tar = { version = "0.4" }
 
 [workspace]
-members = ["shaders"]
+members = ["shaders", "shared_with_gpu", "shader_loading"]
 
 [workspace.dependencies]
+shadertoys-shaders = { path = "shaders" }
+shared_with_gpu = { path = "shared_with_gpu" }
+serde = { version = "1.0.219" }
 spirv-builder = { git = "https://github.com/Rust-GPU/rust-gpu", rev = "0b37696e9f5edde8fa0c1363a88e6c8cb8e6ff68", default-features = false }
 spirv-std = { git = "https://github.com/Rust-GPU/rust-gpu", rev = "0b37696e9f5edde8fa0c1363a88e6c8cb8e6ff68" }
-bytemuck = { git = "https://github.com/Lokathor/bytemuck", rev = "0e11472150c3b63cbae3b445230fe074405bd2d2", features = [
-    "derive",
-] }
-wgpu = { version = "0.19.4", features = [
-    "spirv",
-    "vulkan-portability",
-] } # must use the version that iced uses
+bytemuck = { version = "1.23.1", features = ["derive"] }
+# must use wgpu version that iced uses
+wgpu = { version = "0.19.4", features = ["spirv", "vulkan-portability"] }
 # https://github.com/iced-rs/iced/blob/master/Cargo.toml
 iced_widget = { version = "0.13.4", default-features = false, features = [
     "wgpu",
@@ -56,7 +60,10 @@ iced_core = { version = "0.13.1", default-features = false, features = [
     "auto-detect-theme",
 ] }
 iced_wgpu = { version = "0.13.0", default-features = false }
-iced_winit = { version = "0.13.0", default-features = false, features = [] }
+iced_winit = { version = "0.13.0", default-features = false }
+flate2 = { version = "1.1.2", default-features = false, features = [
+    "miniz_oxide",
+] }
 
 # Compile build-dependencies in release mode with
 # the same settings as regular dependencies.

@@ -8,8 +8,8 @@ pub use spirv_std::glam::{
   Vec4Swizzles,
 };
 
-pub use crate::{
-  shader_infra::LegacyShadertoyGlobals, shader_std::*, shared_data::ShaderConstants,
-};
+pub use crate::{shader_infra::LegacyShadertoyGlobals, shader_std::*};
+
+pub use shared_with_gpu::shader_constants::ShaderConstants;
 
 pub(crate) use crate::shader_infra::define_shader;

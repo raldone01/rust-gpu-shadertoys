@@ -1,12 +1,5 @@
 use bytemuck::{NoUninit, Zeroable};
 
-#[repr(C, u32)]
-#[derive(Copy, Clone, NoUninit, Zeroable)]
-pub enum DisplayMode {
-  Grid { _padding: u32 },
-  SingleShader(u32),
-}
-
 #[repr(C)]
 #[derive(Copy, Clone, NoUninit, Zeroable)]
 pub struct ShaderConstants {

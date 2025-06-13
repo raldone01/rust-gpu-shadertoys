@@ -5,11 +5,6 @@ use iced_wgpu::graphics::{futures::Subscription, Viewport};
 use iced_widget::{column, container, runtime::Task, shader, Column, Text};
 use iced_winit::conversion;
 use ouroboros::self_referencing;
-use shadertoys_shaders::{
-  shaders::SHADER_DEFINITIONS,
-  shared_data::{self, ShaderConstants},
-  ShaderDefinition,
-};
 use std::{
   cell::{Cell, RefCell},
   collections::HashMap,
@@ -35,10 +30,10 @@ use winit::{
   window::{Window, WindowAttributes, WindowId},
 };
 
-use crate::iced_shader::ShaderToyShaderProgram;
+//use crate::iced_shader::ShaderToyShaderProgram;
 
 mod iced_grid;
-mod iced_shader;
+//mod iced_shader;
 
 // https://book.iced.rs/index.html
 // https://github.com/iced-rs/iced/blob/latest/examples/integration/src/main.rs
@@ -186,7 +181,7 @@ impl ApplicationHandler for LegacyShaderToyApp {
    */
 
 #[derive(Debug, Clone)]
-struct DynamicError(String);
+pub struct DynamicError(String);
 
 impl Error for DynamicError {
   fn source(&self) -> Option<&(dyn Error + 'static)> {
@@ -322,12 +317,14 @@ impl WGPURenderingStuff {
       .features()
       .contains(wgpu::Features::SPIRV_SHADER_PASSTHROUGH)
     {
-      let x = include_spirv_raw!(env!("shadertoys_shaders.spv"));
-      unsafe { device.create_shader_module_spirv(&x) }
+      //let x = include_spirv_raw!(env!("shadertoys_shaders.spv"));
+      //unsafe { device.create_shader_module_spirv(&x) }
+      todo!()
       // Newer egpu version
       //unsafe { device.create_shader_module_passthrough(x) }
     } else {
-      device.create_shader_module(include_spirv!(env!("shadertoys_shaders.spv")))
+      //device.create_shader_module(include_spirv!(env!("shadertoys_shaders.spv")))
+      todo!()
     };
 
     // --- Setup the surface configuration ---
@@ -622,7 +619,7 @@ struct ShaderToyApp {
   grid_mode: bool,
   shader_to_show: usize,
   shader_module: Option<Arc<ShaderModule>>,
-  shader_programs: HashMap<*const dyn ShaderDefinition, ShaderToyShaderProgram>,
+  //shader_programs: HashMap<*const dyn ShaderDefinition, ShaderToyShaderProgram>,
 }
 
 impl ShaderToyApp {
@@ -633,18 +630,10 @@ impl ShaderToyApp {
       grid_mode: false,
       shader_to_show: 0,
       shader_module: None,
-      shader_programs: Default::default(),
+      //shader_programs: Default::default(),
     }
   }
-
-  #[must_use]
-  fn display_mode(&self) -> shared_data::DisplayMode {
-    if self.grid_mode {
-      shared_data::DisplayMode::Grid { _padding: 0 }
-    } else {
-      shared_data::DisplayMode::SingleShader(self.shader_to_show as u32)
-    }
-  }
+  /*
 
   #[must_use]
   fn shader_widget(
@@ -689,7 +678,7 @@ impl ShaderToyApp {
       let shader_program = ShaderToyShaderProgram::new(shader_module.clone(), shader_def);
       self.shader_programs.insert(shader_def, shader_program);
     }
-  }
+  }*/
 }
 
 impl Default for ShaderToyApp {
@@ -704,7 +693,7 @@ impl iced_runtime::Program for ShaderToyApp {
   type Message = Message;
 
   fn update(&mut self, message: Self::Message) -> Task<Self::Message> {
-    match message {
+    /*match message {
       Message::NewShaderModule(shader_module) => {
         info!("Received new shader module");
         // TODO: need a better way to propagate shader_module changes without recreating all shaders
@@ -712,11 +701,12 @@ impl iced_runtime::Program for ShaderToyApp {
         self.shader_module = Some(shader_module);
         Task::none()
       },
-    }
+    }*/
+    todo!()
   }
 
   fn view(&self) -> Element<'_, Self::Message, Self::Theme, Self::Renderer> {
-    let shader_widget = if !self.grid_mode {
+    /*let shader_widget = if !self.grid_mode {
       let shader_definition = Self::shader_index_to_definition(self.shader_to_show);
       info!("Showing shader: {}", shader_definition.name());
       let shader_program = self
@@ -734,7 +724,8 @@ impl iced_runtime::Program for ShaderToyApp {
       todo!()
     };
 
-    column![Text::new("ShaderToy - Rust GPU"), shader_widget].into()
+    column![Text::new("ShaderToy - Rust GPU"), shader_widget].into()*/
+    todo!()
   }
 }
 

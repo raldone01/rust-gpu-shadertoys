@@ -2,16 +2,14 @@
 #![allow(unused)] // temp while working
 
 mod shader_infra;
-#[feature("cpu")]
-pub use shader_infra::ShaderDefinition;
 mod shader_prelude;
 mod shader_std;
 use shader_prelude::*;
 use spirv_std::spirv;
 
 pub mod shaders;
-pub mod shared_data;
 
+#[cfg(feature = "shader_code")]
 #[spirv(vertex)]
 pub fn main_vs(#[spirv(vertex_index)] vert_idx: i32, #[spirv(position)] builtin_pos: &mut Vec4) {
   // Create a "full screen triangle" by mapping the vertex index.

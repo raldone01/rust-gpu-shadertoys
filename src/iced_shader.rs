@@ -3,10 +3,7 @@ use std::{sync::Arc, time::Instant};
 use iced_core::{layout, mouse, renderer, Rectangle, Size, Widget};
 use iced_wgpu::{graphics::Viewport, primitive::Renderer};
 use iced_widget::shader;
-use shadertoys_shaders::{
-  shared_data::{self, ShaderConstants},
-  ShaderDefinition,
-};
+use shadertoys_shaders::ShaderDefinition;
 
 #[derive(Clone)]
 pub struct ShaderToyShaderProgram {

@@ -1,19 +1,15 @@
-use crate::shader_infra::ShaderDefinition;
+use shared_with_gpu::shader_definition::ShaderDefinition;
 
 macro_rules! register_shaders {
     ($($shader_name:ident),* $(,)?) => {
 
         // need pub for rust-gpu otherwise the entrypoints get optimized out
-        $(#[cfg(not(feature = "cpu"))]
+        $(
             pub mod $shader_name;
         )*
 
-        $(
-            #[cfg(feature = "cpu")]
-            mod $shader_name;
-        )*
-        #[cfg(feature = "cpu")]
-        pub const SHADER_DEFINITIONS: &[&dyn ShaderDefinition] = &[
+        #[cfg(feature = "cpu_definition_export")]
+        pub const SHADER_DEFINITIONS: &[&ShaderDefinition<'_>] = &[
             $(
                 &$shader_name::SHADER_DEFINITION,
             )*
