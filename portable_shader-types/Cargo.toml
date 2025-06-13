@@ -1,6 +1,8 @@
 [package]
-name = "shared_with_gpu"
+name = "portable_shader-types"
+description = "Types shared between the CPU and GPU for portable shaders and portable shader definition export."
 version = "0.0.0"
+publish = false
 authors = []
 edition = "2021"
 
@@ -10,7 +12,6 @@ cpu_definition_export = ["dep:serde"]
 [dependencies]
 bytemuck = { workspace = true, features = ["derive"] }
 serde = { workspace = true, optional = true, features = ["derive"] }
-
 
 [lints]
 workspace = true

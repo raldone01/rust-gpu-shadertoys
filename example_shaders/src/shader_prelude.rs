@@ -10,6 +10,6 @@ pub use spirv_std::glam::{
 
 pub use crate::{shader_infra::LegacyShadertoyGlobals, shader_std::*};
 
-pub use shared_with_gpu::shader_constants::ShaderConstants;
+pub use portable_shader_types::shader_constants::ShaderConstants;
 
 pub(crate) use crate::shader_infra::define_shader;

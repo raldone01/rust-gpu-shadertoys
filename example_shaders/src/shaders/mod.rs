@@ -1,4 +1,4 @@
-use shared_with_gpu::shader_definition::ShaderDefinition;
+use portable_shader_types::shader_definition::ShaderDefinition;
 
 macro_rules! register_shaders {
     ($($shader_name:ident),* $(,)?) => {

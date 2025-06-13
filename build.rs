@@ -5,8 +5,8 @@ use std::{
   path::Path,
 };
 
+use example_shaders::shaders::SHADER_DEFINITIONS;
 use flate2::Compression;
-use shadertoys_shaders::shaders::SHADER_DEFINITIONS;
 use spirv_builder::{CompileResult, MetadataPrintout, SpirvBuilder, SpirvBuilderError};
 
 fn build_shader(path_to_crate: &str, out_dir: &str) -> Result<CompileResult, SpirvBuilderError> {
@@ -59,7 +59,7 @@ fn module_result_to_paths(module_result: &spirv_builder::ModuleResult) -> Vec<St
 
 fn main() -> Result<(), Box<dyn Error>> {
   let out_dir = std::env::var("OUT_DIR").expect("OUT_DIR environment variable not set");
-  let path_to_crate = "shaders";
+  let path_to_crate = "example_shaders";
   export_shader_definitions(&out_dir)?;
   // QUESTION: We ignore the result here not to crash rust-analyzer I assume?
   let result = build_shader(path_to_crate, &out_dir)?;

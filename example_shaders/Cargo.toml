@@ -1,6 +1,7 @@
 [package]
-name = "shadertoys-shaders"
+name = "example_shaders"
 version = "0.0.0"
+publish = false
 authors = []
 edition = "2021"
 
@@ -11,12 +12,12 @@ crate-type = ["dylib"]
 # Actual shader code is only emitted if this feature is enabled.
 shader_code = []
 # If this feature is enabled, code is generated to export the shader definitions.
-cpu_definition_export = ["shared_with_gpu/cpu_definition_export"]
+cpu_definition_export = ["portable_shader-types/cpu_definition_export"]
 
 [dependencies]
 spirv-std.workspace = true
 bytemuck.workspace = true
-shared_with_gpu.workspace = true
+portable_shader-types.workspace = true
 
 [lints]
 workspace = true

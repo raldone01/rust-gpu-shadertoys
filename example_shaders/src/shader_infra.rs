@@ -6,7 +6,7 @@ use spirv_std::glam::{vec2, vec3, vec4, Vec2, Vec3, Vec4};
 /// TODO: move this
 pub(crate) fn convert_fs_input_to_shader_input(
   in_frag_coord: Vec4,
-  constants: &shared_with_gpu::shader_constants::ShaderConstants,
+  constants: &portable_shader_types::shader_constants::ShaderConstants,
 ) -> LegacyShadertoyGlobals {
   let mut frag_coord = vec2(in_frag_coord.x, in_frag_coord.y);
   let resolution = vec3(constants.width as f32, constants.height as f32, 0.0);
@@ -65,7 +65,7 @@ macro_rules! define_shader {
     #[spirv_std::spirv(fragment(entry_point_name = $name))]
     pub fn main_fs(
     #[spirv(frag_coord)] in_frag_coord: Vec4,
-    #[spirv(push_constant)] in_constants: &shared_with_gpu::shader_constants::ShaderConstants,
+    #[spirv(push_constant)] in_constants: &portable_shader_types::shader_constants::ShaderConstants,
     output: &mut Vec4,
     #[spirv(uniform, descriptor_set = 1, binding = 0)] in_const_parameters: &ShaderParameterValues,
     $($(#[spirv(storage_buffer, descriptor_set = 2, binding = $spirv_binding)] $buffer_name: &mut $buffer_type),* ,)?
@@ -84,11 +84,11 @@ macro_rules! define_shader {
     );
     }
 
-    pub(crate) const SHADER_DEFINITION: shared_with_gpu::shader_definition::ShaderDefinition<'static> = shared_with_gpu::shader_definition::ShaderDefinition {
+    pub(crate) const SHADER_DEFINITION: portable_shader_types::shader_definition::ShaderDefinition<'static> = portable_shader_types::shader_definition::ShaderDefinition {
       name: $name,
-      parameters: (shared_with_gpu::shader_definition::MagicCowVec::Borrowed(&[
+      parameters: (portable_shader_types::shader_definition::MagicCowVec::Borrowed(&[
         $(
-          &shared_with_gpu::shader_definition::ShaderParameters::$shader_param_type<'static>($shader_param_type(shared_with_gpu::shader_definition::ShaderParameters::$shader_param_type {
+          &portable_shader_types::shader_definition::ShaderParameters::$shader_param_type<'static>($shader_param_type(portable_shader_types::shader_definition::ShaderParameters::$shader_param_type {
             $($($shader_param_config_field_name: $shader_param_config_field_type),*)?
           })),
         )*

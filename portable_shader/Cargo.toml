@@ -1,0 +1,12 @@
+[package]
+name = "portable_shader"
+version = "0.0.0"
+publish = false
+authors = []
+edition = "2021"
+
+[dependencies]
+portable_shader-types.workspace = true
+
+[lints]
+workspace = true

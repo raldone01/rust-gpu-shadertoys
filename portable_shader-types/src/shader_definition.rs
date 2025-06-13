@@ -38,6 +38,8 @@ impl<'de: 'a, 'a, T: Deserialize<'de>> Deserialize<'de> for MagicCowVec<'a, T> {
 pub struct ShaderDefinition<'a> {
   pub name: &'a str,
   // TODO: add !rust_shader version!, description, author, shader version, etc.
+  // TODO: Add keywords
+  // TODO: bundle source code into the tar.gz not the shader definition
   #[cfg_attr(feature = "cpu_definition_export", serde(borrow))]
   pub parameters: MagicCowVec<'a, ShaderParameters<'a>>,
 }

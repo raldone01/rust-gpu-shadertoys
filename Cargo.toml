@@ -1,17 +1,18 @@
 [package]
-name = "shadertoys-wgpu"
+name = "shadertoy"
 version = "0.0.0"
 publish = false
 authors = []
 edition = "2021"
 
+# maybe these can be removed when switching to rust-gpu
 [features]
 default = ["use-compiled-tools"]
-#use-installed-tools = ["spirv-builder/use-installed-tools"]
+#use-installed-tools = ["spirv-builder/use-installed-tools"] # disabled because there are some issues with enabling rust-analyzer
 use-compiled-tools = ["spirv-builder/use-compiled-tools"]
 
 [dependencies]
-shared_with_gpu.workspace = true
+portable_shader-types.workspace = true
 clap = { version = "4.5", features = ["cargo"] }
 futures = { version = "0.3", default-features = false, features = [
     "std",
@@ -31,18 +32,18 @@ ouroboros = "0.18.5"
 
 [build-dependencies]
 spirv-builder.workspace = true
-shadertoys-shaders = { workspace = true, features = ["cpu_definition_export"] }
+example_shaders = { workspace = true, features = ["cpu_definition_export"] }
 serde_json = { version = "1.0.140", features = ["std"] }
 #TODO: rm
 flate2.workspace = true
 tar = { version = "0.4" }
 
 [workspace]
-members = ["shaders", "shared_with_gpu", "shader_loading"]
+members = ["example_shaders", "portable_shader", "portable_shader-types"]
 
 [workspace.dependencies]
-shadertoys-shaders = { path = "shaders" }
-shared_with_gpu = { path = "shared_with_gpu" }
+example_shaders = { path = "example_shaders" }
+portable_shader-types = { path = "portable_shader-types" }
 serde = { version = "1.0.219" }
 spirv-builder = { git = "https://github.com/Rust-GPU/rust-gpu", rev = "0b37696e9f5edde8fa0c1363a88e6c8cb8e6ff68", default-features = false }
 spirv-std = { git = "https://github.com/Rust-GPU/rust-gpu", rev = "0b37696e9f5edde8fa0c1363a88e6c8cb8e6ff68" }
